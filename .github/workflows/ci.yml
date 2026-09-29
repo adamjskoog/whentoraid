@@ -46,3 +46,18 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  database:
+    name: Database access rules and sync (Supabase)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:start
+      - run: npm run test:db
+      - run: npm run test:integration

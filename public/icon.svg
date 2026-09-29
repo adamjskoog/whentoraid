@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#101311"/>
+  <path d="M136 96h240v224l-120 96-120-96z" fill="#181d19" stroke="#8a7549" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M160 124h192v184l-96 77-96-77z" fill="none" stroke="#d9b975" stroke-width="4" opacity=".45"/>
+  <text x="256" y="292" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="176" font-weight="700" fill="#d9b975">W</text>
+</svg>

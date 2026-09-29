@@ -1,8 +1,9 @@
 <script>
   import { app } from '../lib/app.svelte.js'
   import { readCharacterFields } from '../lib/forms.js'
-  import { addMember, removeMember, updateMember } from '../lib/members.js'
-  import { showToast } from '../lib/toast.svelte.js'
+  import { addMember, removeMember, setOfficer, updateMember } from '../lib/members.js'
+  import { remote } from '../lib/remote/sync.svelte.js'
+  import { offerUndo, showToast } from '../lib/toast.svelte.js'
   import CharacterFields from './CharacterFields.svelte'
   import Modal from './Modal.svelte'
 
@@ -26,9 +27,14 @@
       name: String(form.get('memberName') ?? ''),
       discordId: String(form.get('discordId') ?? ''),
     }
-    const result = member
+    const saved = member
       ? updateMember(app.data, member.id, input)
       : addMember(app.data, input, readCharacterFields(form, 'character-'))
+    const officer = form.get('officer') === 'on'
+    const result =
+      remote.guildId && !saved.error && member && officer !== Boolean(member.officer)
+        ? setOfficer(saved.state, member.id, officer)
+        : saved
     if (result.error) {
       error = result.error
       return
@@ -44,6 +50,7 @@
       return
     }
     const { id, name } = member
+    const previous = app.data
     const result = removeMember(app.data, id)
     if (result.error) {
       error = result.error
@@ -52,7 +59,7 @@
     }
     app.data = result.state
     onclose()
-    showToast(`${name} removed from the guild.`)
+    offerUndo(`${name} removed from the guild.`, previous)
   }
 </script>
 
@@ -77,6 +84,12 @@
         <CharacterFields prefix="character-" />
       {/if}
     </div>
+    {#if remote.guildId && member}
+      <label class="checkbox-row">
+        <input type="checkbox" name="officer" checked={Boolean(member.officer)} />
+        Officer: can change guild settings, players, and rosters
+      </label>
+    {/if}
     {#if !member}
       <p class="small-text">This is their main. They can add alts on “My characters” once you act as them.</p>
     {/if}

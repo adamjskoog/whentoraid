@@ -97,6 +97,7 @@ describe('validateGuild', () => {
   test('accepts a named guild with hours that fit the raid', () => {
     expect(validateGuild(valid, 6)).toBeNull()
     expect(validateGuild({ ...valid, startHour: 0, endHour: 24 }, 8)).toBeNull()
+    expect(validateGuild({ ...valid, startHour: 20, endHour: 26 }, 6)).toBeNull()
   })
 
   test('rejects bad names, timezones, and hours', () => {
@@ -104,7 +105,8 @@ describe('validateGuild', () => {
     expect(validateGuild({ ...valid, name: 'x'.repeat(61) }, 6)).toMatch(/60 characters/)
     expect(validateGuild({ ...valid, timezone: 'Mars/Olympus' }, 6)).toMatch(/timezone/)
     expect(validateGuild({ ...valid, startHour: 20, endHour: 18 }, 6)).toMatch(/start before/)
-    expect(validateGuild({ ...valid, endHour: 25 }, 6)).toMatch(/start before/)
+    expect(validateGuild({ ...valid, endHour: 31 }, 6)).toMatch(/end by 6 am/)
+    expect(validateGuild({ ...valid, startHour: 2, endHour: 27 }, 6)).toMatch(/at most 24 hours/)
     expect(validateGuild({ ...valid, startHour: 17.5 }, 6)).toMatch(/start before/)
     expect(validateGuild({ ...valid, startHour: 21, endHour: 23 }, 6)).toMatch(
       /at least as long as the raid \(3 hours\)/,

@@ -27,6 +27,7 @@ select {
   font: inherit;
 }
 button,
+.button-like,
 select,
 input {
   border: 1px solid var(--line);
@@ -35,17 +36,20 @@ input {
   color: var(--text);
   padding: 10px 13px;
 }
-button {
+button,
+.button-like {
   cursor: pointer;
   transition:
     background 0.15s,
     border-color 0.15s;
 }
-button:hover {
+button:hover,
+.button-like:hover {
   background: #30392b;
   border-color: #778164;
 }
 button:focus-visible,
+.button-like:focus-within,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible {
@@ -259,6 +263,13 @@ p {
 }
 .weekbar .right {
   margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.weekbar .right .checkbox-row {
+  margin: 0;
 }
 .stats {
   display: grid;
@@ -571,6 +582,15 @@ footer span {
   border-radius: 4px;
   z-index: 20;
   display: none;
+  align-items: center;
+  gap: 16px;
+  max-width: calc(100vw - 32px);
+}
+#toast .toast-action {
+  background: #211d14;
+  color: var(--gold);
+  border-color: #211d14;
+  padding: 4px 12px;
 }
 dialog {
   background: var(--panel);
@@ -736,6 +756,7 @@ dialog::backdrop {
   }
   .weekbar .right {
     margin-left: 0;
+    align-items: flex-start;
   }
   footer {
     padding: 20px 15px;
@@ -980,6 +1001,16 @@ main.setup {
 .acting-as select {
   padding: 6px 8px;
 }
+div.acting-as {
+  color: var(--text);
+}
+div.acting-as small {
+  display: block;
+  color: var(--muted);
+}
+.live-dot.warn {
+  background: var(--red);
+}
 
 /* Availability map views. */
 .heatmap-views {
@@ -1106,4 +1137,10 @@ main.setup {
   .setup-inner {
     padding: 28px 15px 48px;
   }
+}
+.recovery {
+  border-color: var(--red);
+}
+.recovery .buttons {
+  margin-top: 14px;
 }

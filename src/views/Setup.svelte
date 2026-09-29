@@ -1,10 +1,16 @@
 <script>
   import CharacterFields from '../components/CharacterFields.svelte'
+  import OnlineAccount from '../components/OnlineAccount.svelte'
+  import RestoreButton from '../components/RestoreButton.svelte'
   import { app } from '../lib/app.svelte.js'
-  import { readCharacterFields, HOUR_OPTIONS } from '../lib/forms.js'
+  import { END_HOUR_OPTIONS, readCharacterFields, START_HOUR_OPTIONS } from '../lib/forms.js'
   import { timeZoneOptions } from '../lib/guild.js'
   import { createSeedState } from '../lib/seed.js'
+  import { createOnlineGuild, remote } from '../lib/remote/sync.svelte.js'
   import { createGuildState } from '../lib/setup.js'
+  import { downloadText } from '../lib/download.js'
+  import { unreadableReason } from '../lib/storage.js'
+  import { showToast } from '../lib/toast.svelte.js'
 
   const DEFAULT_START_HOUR = 17
   const DEFAULT_END_HOUR = 24
@@ -13,8 +19,11 @@
   const zones = timeZoneOptions(browserZone)
 
   let error = $state('')
+  let creating = $state(false)
+  /** Signed in: new guilds are created online, with you as their first officer. */
+  const online = $derived(remote.enabled && remote.signedIn)
 
-  function create(event) {
+  async function create(event) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const result = createGuildState({
@@ -31,12 +40,33 @@
       return
     }
     app.view = 'members'
-    app.data = result.state
+    if (!online) {
+      app.data = result.state
+      return
+    }
+    creating = true
+    try {
+      await createOnlineGuild(result.state)
+    } catch (failure) {
+      error = failure.message
+    } finally {
+      creating = false
+    }
   }
 
   function loadDemo() {
     app.view = 'planner'
     app.data = createSeedState()
+  }
+
+  function restore(state) {
+    app.view = 'planner'
+    app.data = state
+    showToast(`Restored ${state.guild.name} from the backup.`)
+  }
+
+  function downloadUnreadable() {
+    downloadText('whentoraid-unreadable-save.json', app.unreadable, 'application/json')
   }
 </script>
 
@@ -51,6 +81,27 @@
     <p class="subtitle">
       Takes a minute. You can add the rest of your guild next, and change any of this later in Guild settings.
     </p>
+
+    {#if app.unreadable}
+      <section class="panel spaced-top recovery" role="alert">
+        <h2>Your saved guild could not be loaded</h2>
+        <p>{unreadableReason(app.unreadable)} A copy has been kept in this browser.</p>
+        <p class="note">
+          Download it before setting up a new guild. If it came from a newer version, open it there, or
+          restore it here once this version is updated.
+        </p>
+        <div class="buttons">
+          <button onclick={downloadUnreadable}>Download the saved data</button>
+        </div>
+      </section>
+    {/if}
+
+    {#if remote.enabled}
+      <section class="panel spaced-top">
+        <h2>Play together online</h2>
+        <OnlineAccount />
+      </section>
+    {/if}
 
     <form class="panel spaced-top" onsubmit={create}>
       <h2>Your guild</h2>
@@ -67,7 +118,7 @@
         <label class="field">
           Raids can start from
           <select name="startHour">
-            {#each HOUR_OPTIONS.slice(0, -1) as hour (hour.value)}
+            {#each START_HOUR_OPTIONS as hour (hour.value)}
               <option value={hour.value} selected={hour.value === DEFAULT_START_HOUR}>{hour.label}</option>
             {/each}
           </select>
@@ -75,7 +126,7 @@
         <label class="field">
           Raids must end by
           <select name="endHour">
-            {#each HOUR_OPTIONS.slice(1) as hour (hour.value)}
+            {#each END_HOUR_OPTIONS as hour (hour.value)}
               <option value={hour.value} selected={hour.value === DEFAULT_END_HOUR}>{hour.label}</option>
             {/each}
           </select>
@@ -96,7 +147,9 @@
         <p class="note warning" role="alert">{error}</p>
       {/if}
       <div class="buttons form-actions">
-        <button class="primary">Create guild</button>
+        <button class="primary" disabled={creating}>
+          {online ? (creating ? 'Creating…' : 'Create guild online') : 'Create guild'}
+        </button>
       </div>
     </form>
 
@@ -104,6 +157,12 @@
       <h2>Just looking?</h2>
       <p>Explore a sample guild of 24 players with a week of availability already filled in.</p>
       <button onclick={loadDemo}>Explore the demo guild</button>
+    </section>
+
+    <section class="panel spaced-top">
+      <h2>Have a backup?</h2>
+      <p>Restore a guild downloaded from Guild settings in this or another browser.</p>
+      <RestoreButton onrestore={restore} />
     </section>
   </div>
 </main>

@@ -1,6 +1,7 @@
 <script>
   import { app } from '../lib/app.svelte.js'
-  import { formatSlot } from '../lib/grid.js'
+  import { display, displayZone, setLocalTime, viewerZone } from '../lib/display.svelte.js'
+  import { formatRowLabel, rowLabelsVary } from '../lib/grid.js'
   import { setCurrentWeek } from '../lib/model.js'
   import { addDays, formatMonthDay, mondayOf, todayIso } from '../lib/time.js'
 
@@ -9,7 +10,11 @@
   const guild = $derived(app.data.guild)
   const weekIso = $derived(app.data.currentWeek)
   const thisWeek = $derived(mondayOf(todayIso(guild.timezone)))
-  const hoursLabel = $derived(`${formatSlot(0, guild)}–${formatSlot(guild.slotsPerDay, guild)}`)
+  const zone = $derived(displayZone(guild))
+  const labelsVary = $derived(rowLabelsVary(weekIso, guild, zone))
+  const hoursLabel = $derived(
+    `${formatRowLabel(weekIso, 0, guild, zone)}–${formatRowLabel(weekIso, guild.slotsPerDay, guild, zone)}`,
+  )
 
   function goTo(dateIso) {
     app.data = setCurrentWeek(app.data, dateIso)
@@ -40,5 +45,22 @@
     <button disabled={weekIso === thisWeek} onclick={() => goTo(thisWeek)}>This week</button>
   </div>
   <span class="badge">WOW: FOREVER</span>
-  <small class="right">All times: {guild.timezone} · {hoursLabel} · 30-minute slots</small>
+  <div class="right">
+    {#if viewerZone !== guild.timezone}
+      <label class="checkbox-row">
+        <input
+          type="checkbox"
+          checked={display.localTime}
+          onchange={(e) => setLocalTime(e.currentTarget.checked)}
+        />
+        Show my time ({viewerZone})
+      </label>
+    {/if}
+    <small>All times: {zone} · {hoursLabel} · 30-minute slots · +1 = next day</small>
+    {#if labelsVary}
+      <small class="gold"
+        >Clocks change this week: row times are Monday’s. Hover a cell for its exact time.</small
+      >
+    {/if}
+  </div>
 </div>

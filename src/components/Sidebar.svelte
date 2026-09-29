@@ -2,6 +2,7 @@
   import { app } from '../lib/app.svelte.js'
   import { setCurrentMember } from '../lib/members.js'
   import { memberById } from '../lib/model.js'
+  import { canManage, remote } from '../lib/remote/sync.svelte.js'
 
   const NAV_ITEMS = [
     { view: 'planner', icon: '⚔', label: 'Raid planner' },
@@ -25,7 +26,7 @@
 </script>
 
 <aside>
-  <a class="brand" href="/" onclick={goHome}>
+  <a class="brand" href="#/planner" onclick={goHome}>
     <span class="crest">W</span>
     <span>WHEN<span class="gold">TO</span>RAID<small>THE GUILD WAR ROOM</small></span>
   </a>
@@ -42,17 +43,26 @@
     {/each}
   </nav>
   <div class="aside-bottom">
-    <span class="live-dot"></span> Saved in this browser
+    <span class="live-dot" class:warn={remote.status === 'error'}></span>
+    {remote.guildId
+      ? remote.status === 'error'
+        ? 'Online · not saved'
+        : 'Online · shared with your guild'
+      : 'Saved in this browser'}
     <div class="user">
       <span class="avatar" aria-hidden="true">{initials}</span>
-      <label class="field acting-as">
-        Acting as
-        <select value={app.data.currentMemberId} onchange={switchMember}>
-          {#each app.data.members as member (member.id)}
-            <option value={member.id}>{member.name}</option>
-          {/each}
-        </select>
-      </label>
+      {#if canManage()}
+        <label class="field acting-as">
+          {remote.guildId ? 'Editing as' : 'Acting as'}
+          <select value={app.data.currentMemberId} onchange={switchMember}>
+            {#each app.data.members as member (member.id)}
+              <option value={member.id}>{member.name}</option>
+            {/each}
+          </select>
+        </label>
+      {:else}
+        <div class="acting-as">{me?.name ?? 'Signed in'}<small>Player</small></div>
+      {/if}
     </div>
   </div>
 </aside>

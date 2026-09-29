@@ -1,4 +1,5 @@
 const MINUTE_MS = 60_000
+const DAY_MS = 24 * 60 * MINUTE_MS
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const formatters = new Map()
@@ -57,14 +58,35 @@ export function zonedTimeToUtc(dateIso, minutesFromMidnight, timeZone) {
   return wallMs - timeZoneOffsetMinutes(guess, timeZone) * MINUTE_MS
 }
 
-/** Today's date (YYYY-MM-DD) on the wall calendar in `timeZone`. */
-export function todayIso(timeZone, now = Date.now()) {
+/**
+ * The wall-clock date (YYYY-MM-DD) and minutes after midnight in `timeZone` at `utcMs`.
+ * @returns {{ dateIso: string, minutes: number }}
+ */
+export function wallTime(utcMs, timeZone) {
   const parts = Object.fromEntries(
     partsFormatter(timeZone)
-      .formatToParts(new Date(now))
+      .formatToParts(new Date(utcMs))
       .map((p) => [p.type, p.value]),
   )
-  return `${parts.year}-${parts.month.padStart(2, '0')}-${parts.day.padStart(2, '0')}`
+  return {
+    dateIso: `${parts.year}-${parts.month.padStart(2, '0')}-${parts.day.padStart(2, '0')}`,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute),
+  }
+}
+
+/** Today's date (YYYY-MM-DD) on the wall calendar in `timeZone`. */
+export function todayIso(timeZone, now = Date.now()) {
+  return wallTime(now, timeZone).dateIso
+}
+
+/** Whole days from `fromIso` to `toIso`; negative when `toIso` is earlier. */
+export function daysBetween(fromIso, toIso) {
+  return Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / DAY_MS)
+}
+
+/** Day of the week for a date, 0 = Monday. */
+export function weekdayIndex(dateIso) {
+  return (new Date(`${dateIso}T00:00:00Z`).getUTCDay() + 6) % 7
 }
 
 /** Whether `timeZone` is an IANA zone this browser can convert times for. */

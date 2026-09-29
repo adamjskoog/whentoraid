@@ -1,3 +1,4 @@
+import { LATEST_END_HOUR } from './guild.js'
 import { formatClock } from './time.js'
 
 const CHARACTER_KEYS = ['name', 'realm', 'class', 'spec', 'role']
@@ -7,8 +8,14 @@ export function readCharacterFields(form, prefix = '') {
   return Object.fromEntries(CHARACTER_KEYS.map((key) => [key, String(form.get(`${prefix}${key}`) ?? '')]))
 }
 
-/** Whole hours for raid-hour pickers; 24 is midnight at the end of the day. */
-export const HOUR_OPTIONS = Array.from({ length: 25 }, (_, hour) => ({
-  value: hour,
-  label: hour === 24 ? 'Midnight (end of day)' : formatClock(hour * 60),
-}))
+function hourLabel(hour) {
+  if (hour === 24) return 'Midnight (end of day)'
+  return hour > 24 ? `${formatClock(hour * 60)} (next day)` : formatClock(hour * 60)
+}
+
+const hourOptions = (from, to) =>
+  Array.from({ length: to - from + 1 }, (_, i) => ({ value: from + i, label: hourLabel(from + i) }))
+
+/** Raid-hour pickers. Raids start on the day itself and may end the next morning. */
+export const START_HOUR_OPTIONS = hourOptions(0, 23)
+export const END_HOUR_OPTIONS = hourOptions(1, LATEST_END_HOUR)

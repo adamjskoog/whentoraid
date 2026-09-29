@@ -1,8 +1,10 @@
 <script>
+  import OnlineAccount from '../components/OnlineAccount.svelte'
   import PageTitle from '../components/PageTitle.svelte'
+  import RestoreButton from '../components/RestoreButton.svelte'
   import { app } from '../lib/app.svelte.js'
   import { DAYS, DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from '../lib/constants.js'
-  import { HOUR_OPTIONS } from '../lib/forms.js'
+  import { END_HOUR_OPTIONS, START_HOUR_OPTIONS } from '../lib/forms.js'
   import {
     DEFAULT_CHECKIN_DEADLINE,
     minutesToTimeInput,
@@ -11,9 +13,12 @@
     timeZoneOptions,
   } from '../lib/guild.js'
   import { applySettings } from '../lib/planning.js'
+  import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import { createSeedState } from '../lib/seed.js'
-  import { clearState } from '../lib/storage.js'
-  import { showToast } from '../lib/toast.svelte.js'
+  import { downloadText } from '../lib/download.js'
+  import { backupJson, clearState } from '../lib/storage.js'
+  import { todayIso } from '../lib/time.js'
+  import { offerUndo, showToast } from '../lib/toast.svelte.js'
 
   const settings = $derived(app.data.settings)
   const guild = $derived(app.data.guild)
@@ -32,6 +37,10 @@
 
   function save(event) {
     event.preventDefault()
+    if (!canManage()) {
+      showToast('Only officers can change guild settings.')
+      return
+    }
     const form = new FormData(event.currentTarget)
     const result = applySettings(app.data, {
       targets: ROLES.map((_, i) => Number(form.get(`role${i}`))),
@@ -60,9 +69,10 @@
       confirming = 'demo'
       return
     }
+    const previous = app.data
     app.view = 'planner'
     app.data = createSeedState()
-    showToast('Demo guild loaded')
+    offerUndo('Demo guild loaded.', previous)
   }
 
   function startOver() {
@@ -70,9 +80,22 @@
       confirming = 'new'
       return
     }
+    const previous = app.data
     clearState()
     app.view = 'planner'
     app.data = null
+    offerUndo('Guild erased.', previous)
+  }
+
+  function downloadBackup() {
+    const date = todayIso(guild.timezone)
+    downloadText(`whentoraid-backup-${date}.json`, backupJson($state.snapshot(app.data)), 'application/json')
+  }
+
+  function restore(state) {
+    const previous = app.data
+    app.data = state
+    offerUndo(`Restored ${state.guild.name} from the backup.`, previous)
   }
 </script>
 
@@ -99,7 +122,7 @@
     <label class="field">
       Raids can start from
       <select name="startHour">
-        {#each HOUR_OPTIONS.slice(0, -1) as hour (hour.value)}
+        {#each START_HOUR_OPTIONS as hour (hour.value)}
           <option value={hour.value} selected={hour.value === hours.startHour}>{hour.label}</option>
         {/each}
       </select>
@@ -107,7 +130,7 @@
     <label class="field">
       Raids must end by
       <select name="endHour">
-        {#each HOUR_OPTIONS.slice(1) as hour (hour.value)}
+        {#each END_HOUR_OPTIONS as hour (hour.value)}
           <option value={hour.value} selected={hour.value === hours.endHour}>{hour.label}</option>
         {/each}
       </select>
@@ -196,14 +219,40 @@
 </form>
 
 <section class="panel settings-panel spaced-top">
-  <h2>Start over</h2>
-  <p>Your guild is saved only in this browser. Both options below erase it here.</p>
-  <div class="buttons">
-    <button class:danger={confirming === 'demo'} onclick={loadDemo}>
-      {confirming === 'demo' ? 'Click again to replace your guild' : 'Replace with the demo guild'}
-    </button>
-    <button class:danger={confirming === 'new'} onclick={startOver}>
-      {confirming === 'new' ? 'Click again to erase this guild' : 'Set up a new guild'}
-    </button>
-  </div>
+  <h2>Online</h2>
+  <OnlineAccount />
 </section>
+
+<section class="panel settings-panel spaced-top">
+  <h2>Backup</h2>
+  {#if remote.guildId}
+    <p>Download a copy of this online guild. It can be restored as a guild saved in a browser.</p>
+    <div class="buttons">
+      <button onclick={downloadBackup}>Download backup (.json)</button>
+    </div>
+  {:else}
+    <p>
+      Your guild is saved only in this browser. Download a backup to keep a copy, or to move the guild to
+      another browser or device. Restoring replaces the guild here.
+    </p>
+    <div class="buttons">
+      <button onclick={downloadBackup}>Download backup (.json)</button>
+      <RestoreButton onrestore={restore} />
+    </div>
+  {/if}
+</section>
+
+{#if !remote.guildId}
+  <section class="panel settings-panel spaced-top">
+    <h2>Start over</h2>
+    <p>Your guild is saved only in this browser. Both options below erase it here.</p>
+    <div class="buttons">
+      <button class:danger={confirming === 'demo'} onclick={loadDemo}>
+        {confirming === 'demo' ? 'Click again to replace your guild' : 'Replace with the demo guild'}
+      </button>
+      <button class:danger={confirming === 'new'} onclick={startOver}>
+        {confirming === 'new' ? 'Click again to erase this guild' : 'Set up a new guild'}
+      </button>
+    </div>
+  </section>
+{/if}

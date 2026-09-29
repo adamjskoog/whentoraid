@@ -2,7 +2,7 @@
   import { app } from '../lib/app.svelte.js'
   import { readCharacterFields } from '../lib/forms.js'
   import { deleteCharacter, saveCharacter } from '../lib/model.js'
-  import { showToast } from '../lib/toast.svelte.js'
+  import { offerUndo, showToast } from '../lib/toast.svelte.js'
   import CharacterFields from './CharacterFields.svelte'
   import Modal from './Modal.svelte'
 
@@ -22,6 +22,7 @@
     }
     // Read the name first: once deleted, the `character` prop becomes null.
     const { id, name } = character
+    const previous = app.data
     const result = deleteCharacter(app.data, app.data.currentMemberId, id)
     if (result.error) {
       showToast(result.error)
@@ -30,7 +31,7 @@
     }
     app.data = result.state
     onclose()
-    showToast(`${name} deleted.`)
+    offerUndo(`${name} deleted.`, previous)
   }
 
   function submit(event) {

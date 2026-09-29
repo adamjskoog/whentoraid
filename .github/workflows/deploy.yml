@@ -1,11 +1,13 @@
 name: Deploy to GitHub Pages
 
-# Publishes the static build on every push to main once the checks and end-to-end tests pass.
-# One-time setup: repository Settings → Pages → Source: "GitHub Actions".
+# Publishes the static build once the checks and end-to-end tests pass. Manual for now (Actions →
+# Deploy to GitHub Pages → Run workflow): Pages is not enabled while the repository is private on the
+# free plan. To deploy on every push again, enable Pages (Settings → Pages → Source: "GitHub
+# Actions") and add back:
+#   push:
+#     branches: [main]
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -30,6 +32,12 @@ jobs:
       - run: npm run check
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      # Tests run on a browser-only build; the published build connects to Supabase when these
+      # repository variables are set (Settings > Secrets and variables > Actions > Variables).
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

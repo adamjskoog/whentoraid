@@ -48,6 +48,13 @@ function thinnestBackup(spare, targets) {
   return needed.length ? Math.min(...needed) : 0
 }
 
+const ROLE_LETTERS = { Tank: 'T', Healer: 'H', DPS: 'D' }
+
+/** Backups per role, e.g. "1 T · 2 H · 5 D". */
+export function formatBackups(spare) {
+  return ROLES.map((role, i) => `${spare[i]} ${ROLE_LETTERS[role]}`).join(' · ')
+}
+
 const sum = (numbers) => numbers.reduce((total, n) => total + n, 0)
 
 /**

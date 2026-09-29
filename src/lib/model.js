@@ -1,7 +1,7 @@
 import { CLASS_COLORS, DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from './constants.js'
 import { gridFromHours, raidHours, validateDeadline, validateGuild } from './guild.js'
 import { addInterval, removeInterval } from './intervals.js'
-import { isIsoDate, mondayOf } from './time.js'
+import { addDays, isIsoDate, mondayOf } from './time.js'
 
 /**
  * Members and characters are stored once. Each week holds only check-ins
@@ -9,8 +9,9 @@ import { isIsoDate, mondayOf } from './time.js'
  *
  * @typedef {import('./intervals.js').Interval} Interval
  * @typedef {import('./engine.js').RosterEntry} RosterEntry
- * @typedef {{ id: string, name: string, discordId: string }} Member
- *   `discordId` is the member's Discord user ID ('' when unknown), used to mention them in reminders.
+ * @typedef {{ id: string, name: string, discordId: string, officer?: boolean }} Member
+ *   `discordId` is the member's Discord user ID ('' when unknown), used to mention them in reminders
+ *   and, online, to let them sign in. `officer` matters only for online guilds.
  * @typedef {{ id: string, memberId: string, name: string, class: string, spec: string, role: string, realm: string, main: boolean }} Character
  * @typedef {{ checkedIn: boolean, ranges: Interval[], declined: string[] }} Checkin
  *   `checkedIn` means the member responded for the week, even if the answer is "not available".
@@ -91,6 +92,30 @@ export function enginePlayers(state, weekIso) {
 /** Replace one week with `update(week)`. */
 export function updateWeek(state, weekIso, update) {
   return { ...state, weeks: { ...state.weeks, [weekIso]: update(getWeek(state, weekIso)) } }
+}
+
+/**
+ * How many weeks before this one keep their check-ins. Bench fairness reads 4 weeks back; the rest
+ * is room to look at recent history. Older weeks keep only their plan (attendance records).
+ */
+export const CHECKIN_HISTORY_WEEKS = 12
+
+/**
+ * Drop check-ins from weeks more than `keepWeeks` before `thisWeekIso`, and drop those weeks entirely
+ * when they have no plan, so browser storage does not grow without limit. Returns `state` itself when
+ * nothing is old enough to prune.
+ */
+export function pruneOldWeeks(state, thisWeekIso, keepWeeks = CHECKIN_HISTORY_WEEKS) {
+  const cutoff = addDays(thisWeekIso, -7 * keepWeeks)
+  const isOld = ([weekIso, week]) => weekIso < cutoff && Object.keys(week.checkins).length > 0
+  if (!Object.entries(state.weeks).some(isOld)) return state
+
+  const weeks = Object.fromEntries(
+    Object.entries(state.weeks)
+      .map((entry) => (isOld(entry) ? [entry[0], { ...entry[1], checkins: {} }] : entry))
+      .filter(([weekIso, week]) => weekIso >= cutoff || week.plan),
+  )
+  return { ...state, weeks }
 }
 
 function withCheckin(state, weekIso, memberId, update) {

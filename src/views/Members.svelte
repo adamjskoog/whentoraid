@@ -6,6 +6,7 @@
   import { CLASS_COLORS } from '../lib/constants.js'
   import { setCurrentMember } from '../lib/members.js'
   import { charactersOf, getCheckin, memberById } from '../lib/model.js'
+  import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import { showToast } from '../lib/toast.svelte.js'
 
   /** null: closed. { memberId: null }: adding. { memberId }: editing. */
@@ -44,7 +45,9 @@
   subtitle="Add your players, then act as any of them to fill in their availability and characters."
 >
   {#snippet action()}
-    <button class="primary" onclick={() => (editing = { memberId: null })}>+ Add player</button>
+    {#if canManage()}
+      <button class="primary" onclick={() => (editing = { memberId: null })}>+ Add player</button>
+    {/if}
   {/snippet}
 </PageTitle>
 
@@ -66,6 +69,7 @@
           <th scope="row">
             {member.name}
             {#if isMe}<span class="badge">YOU</span>{/if}
+            {#if remote.guildId && member.officer}<span class="badge">OFFICER</span>{/if}
             <small>{member.discordId ? 'Discord ID saved' : 'No Discord ID'}</small>
           </th>
           <td style:--class={main ? CLASS_COLORS[main.class] : null}>
@@ -80,10 +84,12 @@
           <td data-label="This week"><span class={status.tone}>{status.label}</span></td>
           <td data-label="Attendance">{record ?? '—'}</td>
           <td class="row-actions">
-            <button disabled={isMe} onclick={() => actAs(member)}>{isMe ? 'Acting as' : 'Act as'}</button>
-            <button onclick={() => (editing = { memberId: member.id })} aria-label="Edit {member.name}"
-              >Edit</button
-            >
+            {#if canManage()}
+              <button disabled={isMe} onclick={() => actAs(member)}>{isMe ? 'Acting as' : 'Act as'}</button>
+              <button onclick={() => (editing = { memberId: member.id })} aria-label="Edit {member.name}"
+                >Edit</button
+              >
+            {/if}
           </td>
         </tr>
       {/each}
@@ -92,7 +98,14 @@
 </div>
 
 <p class="note">
-  Everything is saved in this browser. “Act as” stands in for sign-in until Discord login is connected.
+  {#if !remote.guildId}
+    Everything is saved in this browser. “Act as” stands in for sign-in until your guild is online.
+  {:else if canManage()}
+    Players sign in with Discord: add a player’s Discord ID to let them in. As an officer you can act as
+    anyone to fill in their availability.
+  {:else}
+    Officers manage the player list. You can edit your own availability and characters.
+  {/if}
 </p>
 
 <MemberDialog open={editing !== null} member={editingMember} onclose={() => (editing = null)} />

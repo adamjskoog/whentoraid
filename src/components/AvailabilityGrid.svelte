@@ -1,6 +1,6 @@
 <script>
-  import { DAYS } from '../lib/constants.js'
-  import { formatSlot, weekSlotWindows } from '../lib/grid.js'
+  import { displayZone } from '../lib/display.svelte.js'
+  import { formatSlotDay, weekSlotWindows } from '../lib/grid.js'
   import { focusCell, nextCell } from '../lib/grid-nav.js'
   import { covers } from '../lib/intervals.js'
   import WeekGrid from './WeekGrid.svelte'
@@ -18,6 +18,7 @@
   let lastCellKey = null
 
   const slotWindows = $derived(weekSlotWindows(weekIso, grid))
+  const zone = $derived(displayZone(grid))
 
   function isMine(day, slot) {
     return covers(ranges, slotWindows[day][slot])
@@ -78,7 +79,7 @@
 
 {#snippet cell(day, slot)}
   {@const mine = isMine(day, slot)}
-  {@const label = `${DAYS[day]} ${formatSlot(slot, grid)} ${mine ? 'available' : 'unavailable'}`}
+  {@const label = `${formatSlotDay(weekIso, day, slot, grid, zone)} ${mine ? 'available' : 'unavailable'}`}
   <button
     class="cell"
     class:mine

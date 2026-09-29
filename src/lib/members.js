@@ -91,6 +91,21 @@ export function removeMember(state, memberId) {
   }
 }
 
+/**
+ * Make a member an officer or not. Officers manage an online guild: its settings, players, and
+ * rosters. The last officer cannot step down (the server enforces this too).
+ */
+export function setOfficer(state, memberId, officer) {
+  const member = state.members.find((m) => m.id === memberId)
+  if (!member) return { state, error: 'Player not found.' }
+  if (!officer && member.officer && !state.members.some((m) => m.id !== memberId && m.officer)) {
+    return { state, error: 'Make someone else an officer first.' }
+  }
+  return {
+    state: { ...state, members: state.members.map((m) => (m.id === memberId ? { ...m, officer } : m)) },
+  }
+}
+
 /** Act as another member (this prototype has no login). Unknown IDs are ignored. */
 export function setCurrentMember(state, memberId) {
   return state.members.some((m) => m.id === memberId) ? { ...state, currentMemberId: memberId } : state
