@@ -1,6 +1,8 @@
 import { slotWindow } from './grid.js'
+import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
 import { addInterval } from './intervals.js'
 import { STATE_VERSION } from './model.js'
+import { DEFAULT_DURATION_SLOTS, DEFAULT_TARGETS } from './setup.js'
 
 export const SEED_WEEK = '2026-09-28'
 
@@ -139,7 +141,7 @@ function seedRanges(index) {
 }
 
 export function createSeedState() {
-  const members = NAMES.map((name, i) => ({ id: `m${i}`, name }))
+  const members = NAMES.map((name, i) => ({ id: `m${i}`, name, discordId: '' }))
   const checkins = Object.fromEntries(
     members.map((m, i) => [m.id, { checkedIn: true, ranges: seedRanges(i), declined: [] }]),
   )
@@ -148,7 +150,11 @@ export function createSeedState() {
     currentWeek: SEED_WEEK,
     currentMemberId: 'm0',
     guild: { ...GUILD },
-    settings: { targets: [2, 4, 14], durationSlots: 6 },
+    settings: {
+      targets: [...DEFAULT_TARGETS],
+      durationSlots: DEFAULT_DURATION_SLOTS,
+      checkinDeadline: { ...DEFAULT_CHECKIN_DEADLINE },
+    },
     members,
     characters: NAMES.flatMap((_, i) => seedCharacters(i)),
     weeks: { [SEED_WEEK]: { checkins, plan: null } },

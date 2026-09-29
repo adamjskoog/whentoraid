@@ -11,7 +11,9 @@ describe('rosterText', () => {
     const text = rosterText(state, plan, players)
     expect(text).toContain('WhenToRaid — week of 2026-09-28')
     expect(text).toContain('Fri · ')
-    expect(text.split('\n')).toHaveLength(3 + plan.team.length)
+    const rosterLines = text.split('\n').filter((line) => /^(Tank|Healer|DPS): /.test(line))
+    expect(rosterLines).toHaveLength(plan.team.length)
+    expect(text).toMatch(/^Bench: /m)
   })
 })
 

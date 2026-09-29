@@ -862,3 +862,248 @@ button.danger {
   outline-offset: 4px;
   border-radius: 4px;
 }
+
+/* Shared bits for guild setup, members, check-ins, and attendance. */
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+button:disabled:hover {
+  background: #20271f;
+  border-color: var(--line);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.muted {
+  color: var(--muted);
+}
+.warning.inline {
+  display: inline;
+  font-size: inherit;
+}
+.checkbox-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 14px 0;
+}
+.chip {
+  padding: 6px 11px;
+  font-size: 12px;
+  border-radius: 999px;
+}
+.chip[aria-pressed='true'] {
+  background: #2b2c20;
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* First-run setup. */
+main.setup {
+  margin: 0;
+}
+.setup-inner {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+.setup-brand {
+  margin-bottom: 36px;
+}
+
+/* Week navigation. */
+.week-nav {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.week-nav > button {
+  padding: 10px 14px;
+}
+
+/* Guild members table. */
+.member-table-wrap {
+  overflow-x: auto;
+  padding: 8px 21px;
+}
+.member-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.member-table th,
+.member-table td {
+  text-align: left;
+  padding: 12px 10px 12px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.member-table thead th {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.member-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.member-table th[scope='row'] {
+  font-weight: 600;
+}
+.member-table .badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+}
+.member-table .class-name {
+  color: var(--class, var(--text));
+}
+.row-actions {
+  white-space: nowrap;
+  text-align: right !important;
+}
+.row-actions button {
+  padding: 7px 11px;
+  margin-left: 6px;
+}
+.acting-as {
+  flex: 1;
+}
+.acting-as select {
+  padding: 6px 8px;
+}
+
+/* Availability map views. */
+.heatmap-views {
+  margin-bottom: 14px;
+}
+.cell.full {
+  border-color: var(--gold);
+}
+.candidate .short {
+  color: var(--gold);
+}
+
+/* Grouped bench. */
+.bench-group {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin: 18px 0 0;
+}
+.bench-group span {
+  color: var(--gold);
+  margin-left: 4px;
+}
+.bench-list.dimmed .player {
+  opacity: 0.7;
+}
+
+/* Check-ins. */
+.name-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.name-list li {
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 9px;
+  color: var(--text);
+}
+
+/* After the raid. */
+.attendance {
+  margin-top: 24px;
+}
+.attendance-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  column-gap: 28px;
+}
+/* Side panels are bordered boxes; give their content room inside the border. */
+.panel.side-section {
+  padding: 18px 20px;
+}
+.panel.side-section:last-child {
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+}
+.empty-week {
+  margin: 16px 0 25px;
+}
+.attendance-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.attendance-list li:last-child {
+  border-bottom: 0;
+}
+.attendance-list strong {
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .week-nav {
+    flex-wrap: wrap;
+  }
+  /* Members table becomes one card per player. */
+  .member-table thead {
+    display: none;
+  }
+  .member-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .member-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .member-table th,
+  .member-table td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .member-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .row-actions {
+    grid-column: 1 / -1;
+    text-align: left !important;
+  }
+  .row-actions button:first-child {
+    margin-left: 0;
+  }
+  .setup-inner {
+    padding: 28px 15px 48px;
+  }
+}

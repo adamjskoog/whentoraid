@@ -1,29 +1,34 @@
 <script>
   import AddPlayerDialog from '../components/AddPlayerDialog.svelte'
+  import AttendancePanel from '../components/AttendancePanel.svelte'
+  import CheckinPanel from '../components/CheckinPanel.svelte'
   import Heatmap from '../components/Heatmap.svelte'
+  import Modal from '../components/Modal.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import PlayerDialog from '../components/PlayerDialog.svelte'
   import RosterBoard from '../components/RosterBoard.svelte'
   import WeekBar from '../components/WeekBar.svelte'
   import { app } from '../lib/app.svelte.js'
+  import { setAttendance, setCancelled } from '../lib/attendance.js'
+  import { rosterIcs } from '../lib/calendar.js'
   import { DAYS, ROLES } from '../lib/constants.js'
+  import { downloadText } from '../lib/download.js'
   import { backups, conflicts, isAvailable } from '../lib/engine.js'
   import { clampStartSlot, formatSession, formatSlot, slotWindow } from '../lib/grid.js'
-  import { characterById, setPlan } from '../lib/model.js'
+  import { characterById, getWeek, setPlan } from '../lib/model.js'
   import {
     benchMember,
+    formatMissing,
+    missingRoles,
     placeInRoster,
     plannerContext,
     rebuildTeam,
     toggleLock,
     topDistinctDays,
   } from '../lib/planning.js'
-  import Modal from '../components/Modal.svelte'
   import { DISCORD_MESSAGE_LIMIT, rosterDiscord, rosterText } from '../lib/roster-export.js'
   import { addDays, formatMonthDay } from '../lib/time.js'
   import { showToast } from '../lib/toast.svelte.js'
-
-  const DOWNLOAD_URL_LIFETIME_MS = 1000
 
   const context = $derived(plannerContext(app.data))
   const plan = $derived(context.plan)
@@ -31,6 +36,8 @@
   const settings = $derived(app.data.settings)
   const guild = $derived(app.data.guild)
   const weekIso = $derived(app.data.currentWeek)
+  /** The saved plan carries attendance; the resolved plan above may be an unsaved suggestion. */
+  const savedPlan = $derived(getWeek(app.data, weekIso).plan)
 
   const totalSlots = $derived(settings.targets.reduce((sum, n) => sum + n, 0))
   const roleCounts = $derived(ROLES.map((role) => plan.team.filter((e) => e.role === role).length))
@@ -114,11 +121,26 @@
     if (dialog?.kind === kind) dialog = null
   }
 
+  /** Attendance lives on the saved plan, so an unsaved suggestion is saved first. */
+  function ensureSaved() {
+    if (!plan.saved) savePlan(plan.start, plan.team)
+  }
+
+  function markAttendance(memberId, status) {
+    ensureSaved()
+    app.data = setAttendance(app.data, weekIso, memberId, status)
+  }
+
+  function markCancelled(cancelled) {
+    ensureSaved()
+    app.data = setCancelled(app.data, weekIso, cancelled)
+    showToast(cancelled ? 'Raid marked as cancelled' : 'Raid marked as held')
+  }
+
   /** Text to copy by hand when the clipboard API is unavailable (e.g. not a secure context). */
   let manualCopyText = $state(null)
 
-  async function copyForDiscord() {
-    const text = rosterDiscord(app.data, plan, players)
+  async function copyText(text, successMessage) {
     try {
       await navigator.clipboard.writeText(text)
     } catch {
@@ -128,18 +150,20 @@
     showToast(
       text.length > DISCORD_MESSAGE_LIMIT
         ? `Copied, but it is ${text.length} characters, over Discord's ${DISCORD_MESSAGE_LIMIT}-character limit. Paste it in two messages.`
-        : 'Roster copied. Paste it into Discord.',
+        : successMessage,
     )
   }
 
+  function copyForDiscord() {
+    copyText(rosterDiscord(app.data, plan, players), 'Roster copied. Paste it into Discord.')
+  }
+
   function exportRoster() {
-    const blob = new Blob([rosterText(app.data, plan, players)], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `whentoraid-${weekIso}.txt`
-    link.click()
-    setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS)
+    downloadText(`whentoraid-${weekIso}.txt`, rosterText(app.data, plan, players))
+  }
+
+  function exportCalendar() {
+    downloadText(`whentoraid-${weekIso}.ics`, rosterIcs(app.data, plan), 'text/calendar')
   }
 </script>
 
@@ -147,11 +171,7 @@
   eyebrow="MAKE TIME FOR THE ADVENTURE"
   title="Find your next raid night."
   subtitle="Real lives. Different schedules. One raid team."
->
-  {#snippet action()}
-    <span class="badge">OFFICER PREVIEW</span>
-  {/snippet}
-</PageTitle>
+/>
 
 <WeekBar />
 
@@ -188,37 +208,47 @@
       <button onclick={rebuild}>↻ Rebuild roster</button>
     </div>
 
-    <div class="candidates">
-      {#each topDays as suggestion, i (suggestion.day)}
-        <button
-          class="candidate"
-          class:selected={suggestion.start === plan.start}
-          onclick={() => chooseSuggestion(suggestion)}
-        >
-          <span class="rank">{i === 0 ? '✦ TOP SUGGESTION' : `ALTERNATIVE 0${i}`}</span>
-          <b>{DAYS[suggestion.day]} {formatMonthDay(addDays(weekIso, suggestion.day))}</b>
-          <small>
-            {formatSlot(suggestion.startSlot, guild)} – {formatSlot(
-              suggestion.startSlot + settings.durationSlots,
-              guild,
-            )}
-          </small>
-          <span class="count">{suggestion.team.length} / {totalSlots} roles filled</span>
-          <small class="backups">Backups: {formatBackups(suggestion.backups)}</small>
-        </button>
-      {/each}
-    </div>
+    {#if checkedInCount === 0}
+      <p class="note empty-week">
+        Nobody has checked in for this week yet, so there is nothing to rank. Copy the reminder from the
+        Check-ins panel and post it in Discord.
+      </p>
+    {:else}
+      <div class="candidates">
+        {#each topDays as suggestion, i (suggestion.day)}
+          {@const missing = formatMissing(missingRoles(suggestion.team, settings.targets))}
+          <button
+            class="candidate"
+            class:selected={suggestion.start === plan.start}
+            onclick={() => chooseSuggestion(suggestion)}
+          >
+            <span class="rank">{i === 0 ? '✦ TOP SUGGESTION' : `ALTERNATIVE 0${i}`}</span>
+            <b>{DAYS[suggestion.day]} {formatMonthDay(addDays(weekIso, suggestion.day))}</b>
+            <small>
+              {formatSlot(suggestion.startSlot, guild)} – {formatSlot(
+                suggestion.startSlot + settings.durationSlots,
+                guild,
+              )}
+            </small>
+            <span class="count">{suggestion.team.length} / {totalSlots} roles filled</span>
+            {#if missing}<small class="short">{missing}</small>{/if}
+            <small class="backups">Backups: {formatBackups(suggestion.backups)}</small>
+          </button>
+        {/each}
+      </div>
+    {/if}
 
     <div class="panel">
       <div class="section-head">
         <h3>Guild availability</h3>
-        <small>Counts are for a full session starting at each time</small>
+        <small>Every cell is a full session starting at that time</small>
       </div>
       <Heatmap
         {weekIso}
         grid={guild}
         {players}
-        windows={context.windows}
+        suggestions={context.suggestions}
+        targets={settings.targets}
         selection={plan}
         durationSlots={settings.durationSlots}
         onselect={moveSession}
@@ -232,6 +262,7 @@
       </div>
       <div class="buttons">
         <button onclick={copyForDiscord}>Copy for Discord</button>
+        <button onclick={exportCalendar}>Add to calendar (.ics)</button>
         <button onclick={exportRoster}>Download .txt ↓</button>
       </div>
     </div>
@@ -248,9 +279,21 @@
       locked={plan.locked}
       onlock={lock}
     />
+
+    {#if plan.team.length}
+      <AttendancePanel
+        team={plan.team}
+        attendance={savedPlan?.attendance ?? {}}
+        cancelled={savedPlan?.cancelled ?? false}
+        onmark={markAttendance}
+        oncancelled={markCancelled}
+      />
+    {/if}
   </div>
 
   <div>
+    <CheckinPanel oncopy={copyText} />
+
     <section class="panel side-section">
       <span class="eyebrow gold">RAID READINESS</span>
       <h2 class="readiness-heading">A party with a plan.</h2>
@@ -263,7 +306,6 @@
         </div>
       {/each}
       <div class="check"><span>Available players</span><span>{availableCount}</span></div>
-      <div class="check"><span>Unique players</span><span class="ok">{plan.team.length} ✓</span></div>
       <div class="check">
         <span>Backups (tank · healer · damage)</span>
         <span class={planThinnest > 0 ? 'ok' : 'gold'}>{formatBackups(planBackups)}</span>
@@ -289,13 +331,6 @@
       </p>
       <div class="check"><span>Classes represented</span><span>{classCount}</span></div>
       <button class="full-width" onclick={() => (app.view = 'settings')}>Adjust raid requirements</button>
-    </section>
-
-    <section>
-      <p class="eyebrow">NO FIXED RAID NIGHT REQUIRED</p>
-      <p class="small-text">
-        Start a fresh week. Let your guild check in. Find the night that works for your people.
-      </p>
     </section>
   </div>
 </div>

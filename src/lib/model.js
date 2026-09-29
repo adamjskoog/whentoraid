@@ -1,4 +1,5 @@
 import { CLASS_COLORS, DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from './constants.js'
+import { gridFromHours, raidHours, validateDeadline, validateGuild } from './guild.js'
 import { addInterval, removeInterval } from './intervals.js'
 import { isIsoDate, mondayOf } from './time.js'
 
@@ -8,27 +9,32 @@ import { isIsoDate, mondayOf } from './time.js'
  *
  * @typedef {import('./intervals.js').Interval} Interval
  * @typedef {import('./engine.js').RosterEntry} RosterEntry
- * @typedef {{ id: string, name: string }} Member
+ * @typedef {{ id: string, name: string, discordId: string }} Member
+ *   `discordId` is the member's Discord user ID ('' when unknown), used to mention them in reminders.
  * @typedef {{ id: string, memberId: string, name: string, class: string, spec: string, role: string, realm: string, main: boolean }} Character
  * @typedef {{ checkedIn: boolean, ranges: Interval[], declined: string[] }} Checkin
  *   `checkedIn` means the member responded for the week, even if the answer is "not available".
- * @typedef {{ start: number, team: RosterEntry[], locked?: string[] }} Plan
- *   `start` is the session start in UTC ms. `locked` lists member IDs that rebuilds must keep;
- *   plans saved before locks existed have no `locked` field.
+ * @typedef {'attended' | 'late' | 'noshow'} Attendance
+ * @typedef {{ start: number, team: RosterEntry[], locked?: string[], attendance?: Record<string, Attendance>, cancelled?: boolean }} Plan
+ *   `start` is the session start in UTC ms. `locked` lists member IDs that rebuilds must keep.
+ *   `attendance` records what happened for rostered members; `cancelled` marks a raid that did not run.
+ *   Plans saved by older versions may lack the optional fields.
  * @typedef {{ checkins: Record<string, Checkin>, plan: Plan | null }} Week
+ * @typedef {{ day: number, minutes: number }} Deadline
+ *   Weekly check-in deadline: day of the week (0 = Monday) and minutes after midnight, guild time.
  * @typedef {{
  *   version: number,
  *   currentWeek: string,
  *   currentMemberId: string,
  *   guild: { name: string, timezone: string, dayStartHour: number, slotsPerDay: number, discordServerId: string, officerRoleIds: string },
- *   settings: { targets: number[], durationSlots: number },
+ *   settings: { targets: number[], durationSlots: number, checkinDeadline: Deadline | null },
  *   members: Member[],
  *   characters: Character[],
  *   weeks: Record<string, Week>,
  * }} AppState
  */
 
-export const STATE_VERSION = 4
+export const STATE_VERSION = 5
 
 const CHARACTER_FIELDS = [
   { key: 'name', label: 'Name', max: 30 },
@@ -82,12 +88,13 @@ export function enginePlayers(state, weekIso) {
   })
 }
 
-function withWeek(state, weekIso, update) {
+/** Replace one week with `update(week)`. */
+export function updateWeek(state, weekIso, update) {
   return { ...state, weeks: { ...state.weeks, [weekIso]: update(getWeek(state, weekIso)) } }
 }
 
 function withCheckin(state, weekIso, memberId, update) {
-  return withWeek(state, weekIso, (week) => ({
+  return updateWeek(state, weekIso, (week) => ({
     ...week,
     checkins: { ...week.checkins, [memberId]: update(week.checkins[memberId] ?? emptyCheckin()) },
   }))
@@ -120,14 +127,34 @@ export function isOfferingAny(state, weekIso, memberId) {
   return charactersOf(state, memberId).some((c) => isOffered(checkin, c.id))
 }
 
-/** Saves the plan. Locks are kept only for members still on the team. */
+/** Keep only the entries of a member-keyed record whose member is still on the team. */
+function onlyTeam(record, team) {
+  const onTeam = new Set(team.map((e) => e.memberId))
+  return Object.fromEntries(Object.entries(record ?? {}).filter(([id]) => onTeam.has(id)))
+}
+
+/**
+ * Saves the plan. Locks and attendance are kept only for members still on the team.
+ * Attendance and the cancelled flag describe one session: they carry over from the saved plan
+ * while the start time stays the same (so roster edits after a raid keep what was recorded), and
+ * reset when the raid moves to another time, unless `plan` gives them explicitly.
+ */
 export function setPlan(state, weekIso, plan) {
   const onTeam = new Set(plan.team.map((e) => e.memberId))
   const locked = (plan.locked ?? []).filter((id) => onTeam.has(id))
-  return withWeek(state, weekIso, (week) => ({
-    ...week,
-    plan: { start: plan.start, team: [...plan.team], locked },
-  }))
+  return updateWeek(state, weekIso, (week) => {
+    const sameSession = week.plan?.start === plan.start
+    return {
+      ...week,
+      plan: {
+        start: plan.start,
+        team: [...plan.team],
+        locked,
+        attendance: onlyTeam(plan.attendance ?? (sameSession ? week.plan.attendance : {}), plan.team),
+        cancelled: plan.cancelled ?? (sameSession && Boolean(week.plan.cancelled)),
+      },
+    }
+  })
 }
 
 export function setCurrentWeek(state, dateIso) {
@@ -185,10 +212,15 @@ export function setMainCharacter(state, memberId, characterId) {
   }
 }
 
-function withoutCharacter(plan, characterId) {
-  const team = plan.team.filter((e) => e.characterId !== characterId)
+/** A plan without the given roster entries, and without locks or attendance for anyone removed. */
+export function planWithout(plan, isRemoved) {
+  const team = plan.team.filter((e) => !isRemoved(e))
   const locked = (plan.locked ?? []).filter((id) => team.some((e) => e.memberId === id))
-  return { ...plan, team, locked }
+  return { ...plan, team, locked, attendance: onlyTeam(plan.attendance, team) }
+}
+
+function withoutCharacter(plan, characterId) {
+  return planWithout(plan, (e) => e.characterId === characterId)
 }
 
 /**
@@ -233,6 +265,30 @@ export function preferredCharacter(state, weekIso, memberId) {
   return offered.find((c) => c.main) ?? offered[0] ?? mine.find((c) => c.main) ?? mine[0]
 }
 
+/**
+ * @typedef {{
+ *   targets: number[], durationSlots: number, discordServerId: string, officerRoleIds: string,
+ *   guildName: string, timezone: string, startHour: number, endHour: number,
+ *   checkinDeadline: Deadline | null,
+ * }} SettingsInput
+ */
+
+/** Complete settings input: fields the caller left out keep their current values. */
+function withCurrentSettings(state, input) {
+  const { startHour, endHour } = raidHours(state.guild)
+  return {
+    discordServerId: state.guild.discordServerId,
+    officerRoleIds: state.guild.officerRoleIds,
+    guildName: state.guild.name,
+    timezone: state.guild.timezone,
+    startHour,
+    endHour,
+    checkinDeadline: state.settings.checkinDeadline ?? null,
+    ...input,
+  }
+}
+
+/** @param {SettingsInput} input @returns {string | null} */
 export function validateSettings(input) {
   const { targets, durationSlots, discordServerId, officerRoleIds } = input
   const validTargets =
@@ -246,18 +302,38 @@ export function validateSettings(input) {
   if (!DURATION_OPTIONS.includes(durationSlots)) return 'Choose a valid raid duration.'
   if (!/^\d*$/.test(discordServerId)) return 'Discord server ID must contain only digits.'
   if (!/^[\d, ]*$/.test(officerRoleIds)) return 'Officer role IDs must be digits separated by commas.'
-  return null
+  const { guildName: name, timezone, startHour, endHour } = input
+  return (
+    validateGuild({ name, timezone, startHour, endHour }, durationSlots) ??
+    validateDeadline(input.checkinDeadline)
+  )
 }
 
-/** @returns {{ state: AppState, error?: string }} */
+/**
+ * Save raid requirements and guild details. Fields left out of `input` keep their current values.
+ * @param {Partial<SettingsInput> & { targets: number[], durationSlots: number }} input
+ * @returns {{ state: AppState, error?: string }}
+ */
 export function saveSettings(state, input) {
-  const error = validateSettings(input)
+  const full = withCurrentSettings(state, input)
+  const error = validateSettings(full)
   if (error) return { state, error }
   return {
     state: {
       ...state,
-      settings: { targets: [...input.targets], durationSlots: input.durationSlots },
-      guild: { ...state.guild, discordServerId: input.discordServerId, officerRoleIds: input.officerRoleIds },
+      settings: {
+        targets: [...full.targets],
+        durationSlots: full.durationSlots,
+        checkinDeadline: full.checkinDeadline && { ...full.checkinDeadline },
+      },
+      guild: {
+        ...state.guild,
+        ...gridFromHours(full.startHour, full.endHour),
+        name: full.guildName.trim(),
+        timezone: full.timezone,
+        discordServerId: full.discordServerId,
+        officerRoleIds: full.officerRoleIds,
+      },
     },
   }
 }

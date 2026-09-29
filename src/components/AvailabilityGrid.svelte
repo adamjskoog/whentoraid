@@ -1,6 +1,7 @@
 <script>
   import { DAYS } from '../lib/constants.js'
   import { formatSlot, weekSlotWindows } from '../lib/grid.js'
+  import { focusCell, nextCell } from '../lib/grid-nav.js'
   import { covers } from '../lib/intervals.js'
   import WeekGrid from './WeekGrid.svelte'
 
@@ -53,10 +54,23 @@
     lastCellKey = null
   }
 
-  function toggleWithKeyboard(event, day, slot) {
-    if (event.key !== ' ' && event.key !== 'Enter') return
+  /** Only one cell is a Tab stop; arrow keys move between cells (roving tabindex). */
+  let focused = $state({ day: 0, slot: 0 })
+  // Fall back to the first cell if the remembered one no longer exists (fewer slots per day).
+  const tabStop = $derived(focused.slot < grid.slotsPerDay ? focused : { day: 0, slot: 0 })
+  let container
+
+  function handleKey(event, day, slot) {
+    if (event.key === ' ' || event.key === 'Enter') {
+      event.preventDefault()
+      onpaint(slotWindows[day][slot], !isMine(day, slot))
+      return
+    }
+    const target = nextCell({ day, slot }, event.key, grid.slotsPerDay)
+    if (!target) return
     event.preventDefault()
-    onpaint(slotWindows[day][slot], !isMine(day, slot))
+    focused = target
+    focusCell(container, target)
   }
 </script>
 
@@ -74,13 +88,17 @@
     aria-pressed={mine}
     aria-label={label}
     title={label}
+    tabindex={tabStop.day === day && tabStop.slot === slot ? 0 : -1}
+    onfocus={() => (focused = { day, slot })}
     onpointerdown={(e) => beginPaint(e, day, slot)}
-    onkeydown={(e) => toggleWithKeyboard(e, day, slot)}
+    onkeydown={(e) => handleKey(e, day, slot)}
   ></button>
 {/snippet}
 
-<WeekGrid {weekIso} {grid} {cell} />
+<div bind:this={container}>
+  <WeekGrid {weekIso} {grid} {cell} />
+</div>
 <div class="legend">
-  <span>Click or drag to mark your availability.</span>
+  <span>Click or drag to mark your availability. Keyboard: arrow keys to move, Space to toggle.</span>
   <span>■ Available</span>
 </div>

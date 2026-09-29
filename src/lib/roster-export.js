@@ -2,6 +2,7 @@ import { ROLES } from './constants.js'
 import { conflicts } from './engine.js'
 import { formatSession } from './grid.js'
 import { characterById, memberById } from './model.js'
+import { benchGroups } from './planning.js'
 import { formatMonthDay } from './time.js'
 
 /** Discord's per-message limit without Nitro. */
@@ -31,6 +32,7 @@ export function rosterText(state, plan, players) {
     `${formatSession(plan.day, plan.startSlot, settings.durationSlots, guild)} · ${guild.timezone}`,
     'DRAFT ROSTER',
     ...lines,
+    ...benchLines(state, players, plan, (text) => `${text}:`, String),
   ].join('\n')
 }
 
@@ -48,8 +50,7 @@ const discordTime = (ms, style) => `<t:${Math.floor(ms / 1000)}:${style}>`
 
 /** Markdown roster for pasting into Discord. Times use Discord timestamps, shown in each reader's timezone. */
 export function rosterDiscord(state, plan, players) {
-  const { guild, settings, currentWeek, members } = state
-  const onTeam = new Set(plan.team.map((e) => e.memberId))
+  const { guild, settings, currentWeek } = state
 
   const roleSections = ROLES.flatMap((role, i) => {
     const entries = plan.team.filter((e) => e.role === role)
@@ -63,12 +64,28 @@ export function rosterDiscord(state, plan, players) {
     return [`**${ROLE_HEADINGS[role]} (${entries.length}/${settings.targets[i]})**`, ...lines, '']
   })
 
-  const bench = members.filter((m) => !onTeam.has(m.id)).map((m) => escapeDiscord(m.name))
   return [
     `**${escapeDiscord(guild.name)} · raid roster · week of ${formatMonthDay(currentWeek)}**`,
     `${discordTime(plan.start, 'F')} – ${discordTime(plan.end, 't')}`,
     '',
     ...roleSections,
-    bench.length ? `**Bench:** ${bench.join(', ')}` : '**Bench:** none',
+    ...benchLines(state, players, plan, (text) => `**${text}:**`, escapeDiscord),
   ].join('\n')
+}
+
+/**
+ * Bench summary: names of players who could fill in, then counts for the rest.
+ * Players who cannot come are not listed by name, so nobody reads the bench as "on standby".
+ */
+function benchLines(state, players, plan, heading, escape) {
+  const { available, unavailable, waiting } = benchGroups(players, plan, plan.team)
+  const names = available.map((id) => escape(memberById(state, id)?.name ?? '?'))
+  const others = [
+    unavailable.length && `${unavailable.length} can’t make it`,
+    waiting.length && `${waiting.length} haven’t checked in`,
+  ].filter(Boolean)
+  return [
+    `${heading('Bench')} ${names.length ? names.join(', ') : 'nobody else is free'}`,
+    ...(others.length ? [`${heading('Not available')} ${others.join(' · ')}`] : []),
+  ]
 }

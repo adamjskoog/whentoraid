@@ -57,6 +57,27 @@ export function zonedTimeToUtc(dateIso, minutesFromMidnight, timeZone) {
   return wallMs - timeZoneOffsetMinutes(guess, timeZone) * MINUTE_MS
 }
 
+/** Today's date (YYYY-MM-DD) on the wall calendar in `timeZone`. */
+export function todayIso(timeZone, now = Date.now()) {
+  const parts = Object.fromEntries(
+    partsFormatter(timeZone)
+      .formatToParts(new Date(now))
+      .map((p) => [p.type, p.value]),
+  )
+  return `${parts.year}-${parts.month.padStart(2, '0')}-${parts.day.padStart(2, '0')}`
+}
+
+/** Whether `timeZone` is an IANA zone this browser can convert times for. */
+export function isValidTimeZone(timeZone) {
+  if (typeof timeZone !== 'string' || !timeZone) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function isIsoDate(value) {
   if (typeof value !== 'string' || !ISO_DATE.test(value)) return false
   const { year, month, day } = parseIsoDate(value)

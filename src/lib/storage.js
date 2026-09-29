@@ -1,3 +1,4 @@
+import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
 import { STATE_VERSION } from './model.js'
 import { isIsoDate } from './time.js'
 
@@ -22,10 +23,23 @@ function migrateV3(state) {
   return { ...state, version: 4, weeks }
 }
 
-/** Bring older saved state up to the current version. Unknown versions are returned unchanged. */
+/** v5 adds member Discord IDs and a weekly check-in deadline. Plans gain optional attendance. */
+function migrateV4(state) {
+  return {
+    ...state,
+    version: 5,
+    members: (state.members ?? []).map((m) => ({ discordId: '', ...m })),
+    settings: { checkinDeadline: { ...DEFAULT_CHECKIN_DEADLINE }, ...state.settings },
+  }
+}
+
+const MIGRATIONS = { 3: migrateV3, 4: migrateV4 }
+
+/** Bring older saved state up to the current version, one step at a time. Unknown versions pass through. */
 export function migrateState(value) {
-  if (value?.version === 3) return migrateV3(value)
-  return value
+  let state = value
+  while (state && MIGRATIONS[state.version]) state = MIGRATIONS[state.version](state)
+  return state
 }
 
 function isValidState(value) {
@@ -36,6 +50,7 @@ function isValidState(value) {
     isIsoDate(value.currentWeek) &&
     typeof value.currentMemberId === 'string' &&
     Array.isArray(value.members) &&
+    value.members.some((m) => m?.id === value.currentMemberId) &&
     Array.isArray(value.characters) &&
     typeof value.weeks === 'object' &&
     typeof value.guild === 'object' &&
@@ -57,6 +72,16 @@ export function loadState() {
 export function saveState(state) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Forget the saved guild, so the next load starts at setup. @returns {boolean} false when storage is unavailable. */
+export function clearState() {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
     return true
   } catch {
     return false

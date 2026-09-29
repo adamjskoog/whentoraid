@@ -1,11 +1,13 @@
 <script>
   import { app } from '../lib/app.svelte.js'
+  import { setCurrentMember } from '../lib/members.js'
   import { memberById } from '../lib/model.js'
 
   const NAV_ITEMS = [
     { view: 'planner', icon: '⚔', label: 'Raid planner' },
     { view: 'availability', icon: '▦', label: 'My availability' },
     { view: 'characters', icon: '♙', label: 'My characters' },
+    { view: 'members', icon: '☰', label: 'Guild members' },
     { view: 'settings', icon: '⚙', label: 'Guild settings' },
   ]
 
@@ -16,6 +18,10 @@
     event.preventDefault()
     app.view = 'planner'
   }
+
+  function switchMember(event) {
+    app.data = setCurrentMember(app.data, event.currentTarget.value)
+  }
 </script>
 
 <aside>
@@ -25,7 +31,7 @@
   </a>
   <div class="guild">
     <span class="guild-icon">✦</span>
-    <div>{app.data.guild.name}<small>WoW: Forever · Sample guild</small></div>
+    <div>{app.data.guild.name}<small>WoW: Forever · {app.data.members.length} players</small></div>
   </div>
   <p class="eyebrow">YOUR GUILD</p>
   <nav>
@@ -36,10 +42,17 @@
     {/each}
   </nav>
   <div class="aside-bottom">
-    <span class="live-dot"></span> Local prototype<small>Sample data · Saved on this browser</small>
+    <span class="live-dot"></span> Saved in this browser
     <div class="user">
-      <span class="avatar">{initials}</span>
-      <div>{me?.name}<small>Officer preview</small></div>
+      <span class="avatar" aria-hidden="true">{initials}</span>
+      <label class="field acting-as">
+        Acting as
+        <select value={app.data.currentMemberId} onchange={switchMember}>
+          {#each app.data.members as member (member.id)}
+            <option value={member.id}>{member.name}</option>
+          {/each}
+        </select>
+      </label>
     </div>
   </div>
 </aside>

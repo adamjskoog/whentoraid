@@ -28,7 +28,8 @@ export function benchHistory(state, weekIso, lookbackWeeks = BENCH_LOOKBACK_WEEK
   for (let weeksAgo = 1; weeksAgo <= lookbackWeeks; weeksAgo++) {
     const pastWeek = addDays(weekIso, -DAYS_PER_WEEK * weeksAgo)
     const plan = state.weeks[pastWeek]?.plan
-    if (!plan) continue
+    // Nobody sat out of a raid that did not happen.
+    if (!plan || plan.cancelled) continue
 
     const window = { start: plan.start, end: plan.start + durationMs }
     const rostered = new Set(plan.team.map((e) => e.memberId))
@@ -145,13 +146,89 @@ export function benchMember(team, memberId) {
   return team.filter((e) => e.memberId !== memberId)
 }
 
+const MISSING_LABELS = {
+  Tank: ['tank', 'tanks'],
+  Healer: ['healer', 'healers'],
+  DPS: ['damage dealer', 'damage dealers'],
+}
+
+/** Roles the team is short of, in ROLES order. */
+export function missingRoles(team, targets) {
+  return ROLES.map((role, i) => ({
+    role,
+    missing: targets[i] - team.filter((e) => e.role === role).length,
+  })).filter((m) => m.missing > 0)
+}
+
+/** "Short 1 tank, 2 healers", or null when every slot is filled. */
+export function formatMissing(missing) {
+  if (missing.length === 0) return null
+  const parts = missing.map(({ role, missing: n }) => `${n} ${MISSING_LABELS[role][n === 1 ? 0 : 1]}`)
+  return `Short ${parts.join(', ')}`
+}
+
+/**
+ * Member IDs not on the team, grouped by why: `available` can stay the whole session and offers a
+ * character; `unavailable` answered but cannot make it (or offers nothing); `waiting` has not checked in.
+ * Order follows `players`.
+ */
+export function benchGroups(players, window, team) {
+  const onTeam = new Set(team.map((e) => e.memberId))
+  const groups = { available: [], unavailable: [], waiting: [] }
+  for (const player of players) {
+    if (onTeam.has(player.id)) continue
+    const canCome = isAvailable(player, window) && player.characters.some((c) => c.offered)
+    const group = !player.checkedIn ? 'waiting' : canCome ? 'available' : 'unavailable'
+    groups[group].push(player.id)
+  }
+  return groups
+}
+
 export function toggleLock(locked, memberId) {
   return locked.includes(memberId) ? locked.filter((id) => id !== memberId) : [...locked, memberId]
 }
 
 /**
- * Save raid requirements, keep the selected session where it still fits,
- * and rebuild the roster for the new requirements around any locked players.
+ * The start slot in `next`'s grid with the same clock time as `startSlot` in `prev`'s grid (slot
+ * numbers count from the day start), moved earlier if needed so the session still fits.
+ */
+function sameClockSlot(startSlot, prev, next) {
+  const shift = ((prev.guild.dayStartHour - next.guild.dayStartHour) * 60) / SLOT_MINUTES
+  return clampStartSlot(startSlot + shift, next.settings.durationSlots, next.guild)
+}
+
+/**
+ * After the guild's timezone or hours change, move every saved plan to the same day and clock time
+ * on the new grid, keeping its roster, locks, attendance, and cancelled flag. Plans that did not sit
+ * on the old grid are left alone.
+ */
+function realignPlans(prev, next) {
+  const gridChanged = ['timezone', 'dayStartHour', 'slotsPerDay'].some((k) => prev.guild[k] !== next.guild[k])
+  if (!gridChanged) return next
+
+  const weeks = Object.fromEntries(
+    Object.entries(next.weeks).map(([weekIso, week]) => {
+      const old =
+        week.plan &&
+        sessionWindows(weekIso, prev.settings.durationSlots, prev.guild).find(
+          (w) => w.start === week.plan.start,
+        )
+      if (!old) return [weekIso, week]
+      const startSlot = sameClockSlot(old.startSlot, prev, next)
+      const { start } = slotWindow(weekIso, old.day, startSlot, next.settings.durationSlots, next.guild)
+      return [weekIso, { ...week, plan: { ...week.plan, start } }]
+    }),
+  )
+  return { ...next, weeks }
+}
+
+const sameNumbers = (a, b) => a.length === b.length && a.every((n, i) => n === b[i])
+
+/**
+ * Save raid requirements and guild details. Saved plans keep their clock time on the new grid.
+ * The current week's roster is rebuilt around locked players only when the raid itself changed
+ * (role slots or duration) or its session had to move to fit new hours; otherwise the roster and any
+ * recorded attendance stay as they are.
  * @returns {{ state: import('./model.js').AppState, error?: string }}
  */
 export function applySettings(state, input) {
@@ -159,10 +236,16 @@ export function applySettings(state, input) {
   const saved = saveSettings(state, input)
   if (saved.error) return saved
 
-  const next = saved.state
+  const next = realignPlans(state, saved.state)
   const { durationSlots, targets } = next.settings
-  const startSlot = clampStartSlot(before.startSlot, durationSlots, next.guild)
+  const startSlot = sameClockSlot(before.startSlot, state, next)
   const window = slotWindow(next.currentWeek, before.day, startSlot, durationSlots, next.guild)
+
+  const sameRaid =
+    sameNumbers(targets, state.settings.targets) && durationSlots === state.settings.durationSlots
+  const savedStart = getWeek(next, next.currentWeek).plan?.start
+  if (sameRaid && before.saved && savedStart === window.start) return { state: next }
+
   const team = rebuildTeam(plannerPlayers(next), window, targets, before.team, before.locked)
   return { state: setPlan(next, next.currentWeek, { start: window.start, team, locked: before.locked }) }
 }

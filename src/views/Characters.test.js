@@ -17,7 +17,7 @@ describe('Characters view', () => {
     await fireEvent.click(screen.getAllByRole('button', { name: 'Edit character' })[0])
     expect(screen.getByRole('heading', { name: 'Edit character' })).toBeTruthy()
 
-    const nameInput = screen.getByLabelText('Name')
+    const nameInput = screen.getByLabelText('Character name')
     expect(nameInput.value).toBe('Stoneguard')
 
     await fireEvent.input(nameInput, { target: { value: 'Stonewall' } })
@@ -49,7 +49,7 @@ describe('Characters view', () => {
     await fireEvent.click(screen.getByRole('button', { name: '+ Add character' }))
     expect(screen.getByRole('heading', { name: 'Add character' })).toBeTruthy()
 
-    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Newblade' } })
+    await fireEvent.input(screen.getByLabelText('Character name'), { target: { value: 'Newblade' } })
     await fireEvent.input(screen.getByLabelText('Realm'), { target: { value: 'Whitemane' } })
     await fireEvent.input(screen.getByLabelText('Specialization'), { target: { value: 'Combat' } })
     await fireEvent.click(screen.getByRole('button', { name: 'Save character' }))

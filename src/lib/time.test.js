@@ -1,9 +1,39 @@
 import { describe, expect, test } from 'vitest'
 import { clampStartSlot, formatSession, sessionWindows, slotWindow } from './grid.js'
-import { addDays, formatClock, isIsoDate, mondayOf, zonedTimeToUtc } from './time.js'
+import {
+  addDays,
+  formatClock,
+  isIsoDate,
+  isValidTimeZone,
+  mondayOf,
+  todayIso,
+  zonedTimeToUtc,
+} from './time.js'
 
 const LA = 'America/Los_Angeles'
 const GRID = { timezone: LA, dayStartHour: 12, slotsPerDay: 24 }
+
+describe('todayIso', () => {
+  test('uses the calendar date in the given timezone, not UTC', () => {
+    // 03:00 UTC on Sep 29 is still 8 pm on Sep 28 in Los Angeles.
+    const now = Date.UTC(2026, 8, 29, 3, 0)
+    expect(todayIso(LA, now)).toBe('2026-09-28')
+    expect(todayIso('UTC', now)).toBe('2026-09-29')
+  })
+
+  test('pads single-digit months and days', () => {
+    expect(todayIso('UTC', Date.UTC(2026, 0, 5, 12))).toBe('2026-01-05')
+  })
+})
+
+describe('isValidTimeZone', () => {
+  test('accepts IANA zones and rejects anything else', () => {
+    expect(isValidTimeZone('Europe/London')).toBe(true)
+    expect(isValidTimeZone('Not/AZone')).toBe(false)
+    expect(isValidTimeZone('')).toBe(false)
+    expect(isValidTimeZone(undefined)).toBe(false)
+  })
+})
 
 describe('zonedTimeToUtc', () => {
   test('converts daylight time (UTC-7)', () => {

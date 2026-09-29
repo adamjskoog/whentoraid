@@ -37,7 +37,6 @@
       <h2>{character.name}</h2>
       <p>{character.spec} {character.class}</p>
       <small>{character.realm} · {character.role}</small>
-      <small>Gear: not synced</small>
       <div class="buttons spaced-top">
         <button onclick={() => (editing = { characterId: character.id })}>Edit character</button>
         {#if !character.main}
