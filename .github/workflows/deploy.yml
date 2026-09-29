@@ -1,13 +1,12 @@
 name: Deploy to GitHub Pages
 
-# Publishes the static build once the checks and end-to-end tests pass. Manual for now (Actions →
-# Deploy to GitHub Pages → Run workflow): Pages is not enabled while the repository is private on the
-# free plan. To deploy on every push again, enable Pages (Settings → Pages → Source: "GitHub
-# Actions") and add back:
-#   push:
-#     branches: [main]
+# Publishes the static build to https://adamjskoog.github.io/whentoraid/ once the checks and
+# end-to-end tests pass, on every push to main. To redeploy without a push: Actions → Deploy to
+# GitHub Pages → Run workflow.
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
