@@ -4,7 +4,7 @@ import { loadState } from '../storage.js'
 import { addDays, mondayOf, todayIso } from '../time.js'
 import { showToast } from '../toast.svelte.js'
 import { applyOps, createGuild, fetchGuild, listGuilds, myDiscordId } from './api.js'
-import { supabase } from './client.js'
+import { isLocalBackend, supabase } from './client.js'
 import { diffRows, rowsToState, stateToRows, TABLES } from './rows.js'
 
 /**
@@ -117,6 +117,26 @@ export async function signIn() {
   const redirectTo = `${location.origin}${location.pathname}`
   const { error } = await supabase.auth.signInWithOAuth({ provider: 'discord', options: { redirectTo } })
   if (error) showToast(error.message)
+}
+
+/** Dev server with a local Supabase: offer the test sign-in. False in every production build. */
+export const localTestSignInAvailable = import.meta.env.DEV && isLocalBackend
+
+/**
+ * Sign in as the local test officer or test player (see dev/local-sign-in.js). Only the dev server
+ * answers this, and only for a local Supabase.
+ * @param {'officer' | 'player'} as
+ */
+export async function localTestSignIn(as) {
+  if (!localTestSignInAvailable) return
+  const response = await fetch(`/__local-sign-in?as=${as}`)
+  const body = await response.json()
+  if (!response.ok) throw new Error(body.error ?? 'Local test sign-in failed.')
+  const { error } = await supabase.auth.setSession({
+    access_token: body.access_token,
+    refresh_token: body.refresh_token,
+  })
+  if (error) throw new Error(error.message)
 }
 
 export async function signOut() {

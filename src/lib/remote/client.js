@@ -8,6 +8,9 @@ import { createClient } from '@supabase/supabase-js'
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
+/** The backend is a Supabase on this machine (`npm run db:start`), so dev-only test sign-in may run. */
+export const isLocalBackend = /^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url ?? '')
+
 export const supabase =
   url && key
     ? createClient(url, key, {

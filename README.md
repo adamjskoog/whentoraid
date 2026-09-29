@@ -61,7 +61,18 @@ To sign in with Discord locally:
 4. Set `enabled = true` under `[auth.external.discord]` in `supabase/config.toml`.
 5. Restart with `npm run db:stop` and `npm run db:start`.
 
-The integration tests do not need Discord: they create password users and link a Discord identity directly in the database.
+Without Discord, use the **local test sign-in**. With `.env.local` pointing at the local Supabase, `npm run dev` shows two extra buttons on the sign-in panel: **Sign in as test officer** (Discord ID `100000000000000001`) and **Sign in as test player** (`100000000000000002`). To invite the test player, add their ID to a member. Use two browsers, or a private window, to be both at once.
+
+How it works:
+
+- `dev/local-sign-in.js` creates each test user on first use and signs a 12-hour session with the local stack's development JWT secret.
+- It runs only on the dev server, and only when the Supabase URL is on this machine.
+- It answers only requests from this machine.
+- Its buttons are removed from production builds.
+
+The integration tests use the same helpers (`dev/local-supabase.js`). Email login stays disabled.
+
+With `.env.local` present, `npm run build`, `npm run preview`, and `npm run test:e2e` also use the local Supabase. Unit tests (`npm test`) always run browser-only.
 
 ### Host it
 

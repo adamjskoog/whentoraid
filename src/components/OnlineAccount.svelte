@@ -3,6 +3,8 @@
   import {
     closeGuild,
     createOnlineGuild,
+    localTestSignIn,
+    localTestSignInAvailable,
     openGuild,
     remote,
     signIn,
@@ -46,6 +48,23 @@
     in their own availability.
   </p>
   <button class="primary" onclick={signIn}>Sign in with Discord</button>
+  {#if localTestSignInAvailable}
+    <div class="local-test-sign-in spaced-top">
+      <p class="note">
+        Local development only: sign in as a test player without Discord. The test officer’s Discord ID is
+        <code>100000000000000001</code>, the test player’s <code>100000000000000002</code>; add the player’s
+        ID to a member to invite them.
+      </p>
+      <div class="buttons">
+        <button disabled={busy} onclick={() => run(() => localTestSignIn('officer'))}
+          >Sign in as test officer</button
+        >
+        <button disabled={busy} onclick={() => run(() => localTestSignIn('player'))}
+          >Sign in as test player</button
+        >
+      </div>
+    </div>
+  {/if}
 {:else}
   <p>
     Signed in with Discord.
