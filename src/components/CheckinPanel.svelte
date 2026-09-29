@@ -1,6 +1,7 @@
 <script>
   import { app } from '../lib/app.svelte.js'
   import { deadlineUtc, reminderDiscord, waitingOn } from '../lib/checkins.js'
+  import { displayZone } from '../lib/display.svelte.js'
 
   /** Who still has to answer this week, the deadline, and a Discord reminder to copy. */
   let { oncopy } = $props()
@@ -12,7 +13,7 @@
     deadline === null
       ? null
       : new Date(deadline).toLocaleString('en-US', {
-          timeZone: app.data.guild.timezone,
+          timeZone: displayZone(app.data.guild),
           weekday: 'short',
           month: 'short',
           day: 'numeric',

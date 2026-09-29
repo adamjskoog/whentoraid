@@ -10,6 +10,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:db": "supabase test db",
+    "test:integration": "vitest run --config vitest.integration.config.js",
+    "db:start": "supabase start -x studio,imgproxy,vector,logflare,inbucket,edge-runtime,supavisor",
+    "db:stop": "supabase stop",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -29,8 +33,12 @@
     "jsdom": "^30.1.1",
     "prettier": "^3.9.9",
     "prettier-plugin-svelte": "^4.1.1",
+    "supabase": "^2.118.0",
     "svelte": "^5.57.1",
     "vite": "^8.3.1",
     "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.2"
   }
 }

@@ -44,12 +44,33 @@ test('set up a guild, add a player, and check them in', async ({ page }) => {
 
 test('the guild survives a reload and can be started over', async ({ page }) => {
   await createGuild(page)
+  // A reload stays on the page in the URL.
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Find your next raid night.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Guild members' })).toBeVisible()
   await expect(page.locator('main > header')).toContainText('NIGHT SHIFT')
+
+  // Back returns to the previous page.
+  await page.getByRole('button', { name: /Raid planner/ }).click()
+  await expect(page.getByRole('heading', { name: 'Find your next raid night.' })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Guild members' })).toBeVisible()
 
   await page.getByRole('button', { name: /Guild settings/ }).click()
   await page.getByRole('button', { name: 'Set up a new guild' }).click()
   await page.getByRole('button', { name: 'Click again to erase this guild' }).click()
   await expect(page.getByRole('heading', { name: 'Set up your guild' })).toBeVisible()
+})
+
+test('a backup restores the guild in a fresh browser', async ({ page, browser }) => {
+  await createGuild(page)
+  await page.getByRole('button', { name: /Guild settings/ }).click()
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download backup (.json)' }).click()
+  const backupPath = await (await downloading).path()
+
+  const fresh = await browser.newPage()
+  await fresh.goto('./')
+  await fresh.getByLabel('Restore from backup…').setInputFiles(backupPath)
+  await expect(fresh.locator('main > header')).toContainText('NIGHT SHIFT')
+  await fresh.close()
 })

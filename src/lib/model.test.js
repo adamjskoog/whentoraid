@@ -7,6 +7,7 @@ import {
   getCheckin,
   getWeek,
   preferredCharacter,
+  pruneOldWeeks,
   setMainCharacter,
   setPlan,
   isOfferingAny,
@@ -195,5 +196,38 @@ describe('saveSettings', () => {
     expect(saveSettings(state, { ...base, targets: [1.5, 2, 3] }).error).toMatch(/whole numbers/)
     expect(saveSettings(state, { ...base, durationSlots: 9 }).error).toMatch(/duration/)
     expect(saveSettings(state, { ...base, discordServerId: 'abc' }).error).toMatch(/digits/)
+  })
+})
+
+describe('pruneOldWeeks', () => {
+  const RANGE = { start: 1000, end: 2000 }
+  const checkins = { m0: { checkedIn: true, ranges: [RANGE], declined: [] } }
+  const plan = { start: 1000, team: [], locked: [], attendance: { m0: 'attended' }, cancelled: false }
+
+  function withWeeks(weeks) {
+    return { ...createSeedState(), weeks }
+  }
+
+  test('drops old check-ins but keeps old plans for attendance records', () => {
+    const state = withWeeks({
+      '2026-01-05': { checkins, plan },
+      '2026-01-12': { checkins, plan: null },
+      '2026-09-28': { checkins, plan: null },
+    })
+    const pruned = pruneOldWeeks(state, '2026-09-28', 12)
+    expect(pruned.weeks).toEqual({
+      '2026-01-05': { checkins: {}, plan },
+      '2026-09-28': { checkins, plan: null },
+    })
+  })
+
+  test('keeps weeks inside the history window whole', () => {
+    const state = withWeeks({ '2026-07-06': { checkins, plan: null } })
+    expect(pruneOldWeeks(state, '2026-09-28', 12)).toBe(state)
+  })
+
+  test('returns the same state when nothing is old enough', () => {
+    const state = createSeedState()
+    expect(pruneOldWeeks(state, SEED_WEEK)).toBe(state)
   })
 })

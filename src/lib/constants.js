@@ -26,3 +26,6 @@ export const MAX_RAID_SIZE = 40
 export const DURATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8]
 
 export const TOAST_MS = 3500
+
+/** Toasts with an Undo button stay longer, so there is time to reach it. */
+export const UNDO_TOAST_MS = 8000

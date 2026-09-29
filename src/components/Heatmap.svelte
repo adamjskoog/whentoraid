@@ -1,7 +1,8 @@
 <script>
-  import { DAYS, ROLES } from '../lib/constants.js'
+  import { ROLES } from '../lib/constants.js'
   import { isAvailable } from '../lib/engine.js'
-  import { formatSlot } from '../lib/grid.js'
+  import { displayZone } from '../lib/display.svelte.js'
+  import { formatSlotDay } from '../lib/grid.js'
   import { focusCell, nextCell } from '../lib/grid-nav.js'
   import { formatMissing, missingRoles } from '../lib/planning.js'
   import WeekGrid from './WeekGrid.svelte'
@@ -31,6 +32,7 @@
   let focused = $state(null)
   let container
 
+  const zone = $derived(displayZone(grid))
   const totalSlots = $derived(targets.reduce((sum, n) => sum + n, 0))
   const eligible = $derived(players.filter((p) => p.checkedIn && p.characters.some((c) => c.offered)))
   const cells = $derived(new Map(suggestions.map((s) => [`${s.day}:${s.startSlot}`, describe(s)])))
@@ -90,8 +92,8 @@
 {#snippet cell(day, slot)}
   {@const info = cells.get(`${day}:${slot}`)}
   {@const label = info
-    ? `${DAYS[day]} ${formatSlot(slot, grid)} start · ${info.detail}`
-    : `${DAYS[day]} ${formatSlot(slot, grid)} · too late to start a full session`}
+    ? `${formatSlotDay(weekIso, day, slot, grid, zone)} start · ${info.detail}`
+    : `${formatSlotDay(weekIso, day, slot, grid, zone)} · too late to start a full session`}
   <button
     class="cell"
     class:chosen={isChosen(day, slot)}

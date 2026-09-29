@@ -24,7 +24,14 @@ const COMMON_TIMEZONES = [
   'UTC',
 ]
 
-/** The guild's planning hours as whole hours; `endHour` 24 means midnight. */
+/**
+ * Raids may run past midnight: the latest end is 6 am the next day, written as hour 30. Each night's
+ * planning window still spans at most a day, so one night's grid never overlaps the next.
+ */
+export const LATEST_END_HOUR = 30
+const HOURS_PER_DAY = 24
+
+/** The guild's planning hours as whole hours; `endHour` 24 means midnight, above 24 the next morning. */
 export function raidHours(guild) {
   return { startHour: guild.dayStartHour, endHour: guild.dayStartHour + guild.slotsPerDay / SLOTS_PER_HOUR }
 }
@@ -46,8 +53,14 @@ export function validateGuild({ name, timezone, startHour, endHour }, durationSl
   if (!isValidTimeZone(timezone)) return 'Choose a valid timezone.'
 
   const wholeHours = Number.isInteger(startHour) && Number.isInteger(endHour)
-  if (!wholeHours || startHour < 0 || endHour > 24 || endHour <= startHour) {
-    return 'Raid hours must start before they end, within one day.'
+  const validRange =
+    startHour >= 0 &&
+    startHour < HOURS_PER_DAY &&
+    endHour > startHour &&
+    endHour <= LATEST_END_HOUR &&
+    endHour - startHour <= HOURS_PER_DAY
+  if (!wholeHours || !validRange) {
+    return 'Raid hours must start before they end, end by 6 am, and span at most 24 hours.'
   }
   if ((endHour - startHour) * SLOTS_PER_HOUR < durationSlots) {
     return `Raid hours must be at least as long as the raid (${durationSlots / SLOTS_PER_HOUR} hours).`

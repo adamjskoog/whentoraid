@@ -14,7 +14,7 @@ export default [
     },
   },
   {
-    files: ['*.config.js', 'vitest-setup.js'],
+    files: ['*.config.js', 'vitest-setup.js', 'integration/**/*.js'],
     languageOptions: { globals: { ...globals.node } },
   },
 ]

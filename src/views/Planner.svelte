@@ -5,21 +5,25 @@
   import Heatmap from '../components/Heatmap.svelte'
   import Modal from '../components/Modal.svelte'
   import PageTitle from '../components/PageTitle.svelte'
+  import PlannerStats from '../components/PlannerStats.svelte'
   import PlayerDialog from '../components/PlayerDialog.svelte'
+  import ReadinessPanel from '../components/ReadinessPanel.svelte'
   import RosterBoard from '../components/RosterBoard.svelte'
+  import SuggestionCards from '../components/SuggestionCards.svelte'
   import WeekBar from '../components/WeekBar.svelte'
   import { app } from '../lib/app.svelte.js'
   import { setAttendance, setCancelled } from '../lib/attendance.js'
   import { rosterIcs } from '../lib/calendar.js'
-  import { DAYS, ROLES } from '../lib/constants.js'
+  import { ROLES } from '../lib/constants.js'
   import { downloadText } from '../lib/download.js'
   import { backups, conflicts, isAvailable } from '../lib/engine.js'
-  import { clampStartSlot, formatSession, formatSlot, slotWindow } from '../lib/grid.js'
+  import { displayZone } from '../lib/display.svelte.js'
+  import { clampStartSlot, formatSessionIn, slotWindow } from '../lib/grid.js'
   import { characterById, getWeek, setPlan } from '../lib/model.js'
+  import { canManage } from '../lib/remote/sync.svelte.js'
   import {
     benchMember,
-    formatMissing,
-    missingRoles,
+    formatBackups,
     placeInRoster,
     plannerContext,
     rebuildTeam,
@@ -27,7 +31,6 @@
     topDistinctDays,
   } from '../lib/planning.js'
   import { DISCORD_MESSAGE_LIMIT, rosterDiscord, rosterText } from '../lib/roster-export.js'
-  import { addDays, formatMonthDay } from '../lib/time.js'
   import { showToast } from '../lib/toast.svelte.js'
 
   const context = $derived(plannerContext(app.data))
@@ -50,28 +53,32 @@
   const classCount = $derived(
     new Set(plan.team.map((e) => characterById(app.data, e.characterId)?.class)).size,
   )
-  const sessionLabel = $derived(formatSession(plan.day, plan.startSlot, settings.durationSlots, guild))
+  const zone = $derived(displayZone(guild))
+  const sessionLabel = $derived(formatSessionIn(plan, zone))
   const benchMembers = $derived(app.data.members.filter((m) => !plan.team.some((e) => e.memberId === m.id)))
   const planBackups = $derived(backups(players, plan, plan.team))
   const planThinnest = $derived(
     Math.min(...planBackups.filter((_, i) => settings.targets[i] > 0).concat(Number.POSITIVE_INFINITY)),
   )
 
-  const ROLE_LETTERS = { Tank: 'T', Healer: 'H', DPS: 'D' }
-
-  function formatBackups(spare) {
-    return ROLES.map((role, i) => `${spare[i]} ${ROLE_LETTERS[role]}`).join(' · ')
-  }
-
   /** @type {{ kind: 'player', memberId: string, role?: string } | { kind: 'add', role: string } | null} */
   let dialog = $state(null)
 
+  /** Rosters and attendance are officers' calls in an online guild; the server enforces it too. */
+  function officersOnly() {
+    if (canManage()) return false
+    showToast('Only officers can change the roster.')
+    return true
+  }
+
   /** Locks carry over unless given; setPlan drops locks for anyone no longer on the team. */
   function savePlan(start, team, locked = plan.locked) {
+    if (officersOnly()) return
     app.data = setPlan(app.data, weekIso, { start, team, locked })
   }
 
   function rebuild() {
+    if (officersOnly()) return
     savePlan(plan.start, rebuildTeam(players, plan, settings.targets, plan.team, plan.locked))
     showToast(plan.locked.length ? 'Roster rebuilt around locked players' : 'Roster rebuilt for this session')
   }
@@ -127,11 +134,13 @@
   }
 
   function markAttendance(memberId, status) {
+    if (officersOnly()) return
     ensureSaved()
     app.data = setAttendance(app.data, weekIso, memberId, status)
   }
 
   function markCancelled(cancelled) {
+    if (officersOnly()) return
     ensureSaved()
     app.data = setCancelled(app.data, weekIso, cancelled)
     showToast(cancelled ? 'Raid marked as cancelled' : 'Raid marked as held')
@@ -175,25 +184,14 @@
 
 <WeekBar />
 
-<div class="stats">
-  <div class="stat">
-    <span class="stat-label">WEEKLY CHECK-INS</span>
-    <strong>{checkedInCount} <span>/ {players.length}</span></strong>
-    <small>Players who checked in this week</small>
-  </div>
-  <div class="stat">
-    <span class="stat-label">CURRENT ROSTER</span>
-    <strong>{plan.team.length} <span>/ {totalSlots}</span></strong>
-    <small>{roleCounts[0]} tanks · {roleCounts[1]} healers · {roleCounts[2]} damage</small>
-  </div>
-  <div class="stat">
-    <span class="stat-label">SCHEDULE CONFLICTS</span>
-    <strong class={problemCount ? 'bad' : 'good'}>{String(problemCount).padStart(2, '0')}</strong>
-    <small
-      >{problemCount ? 'Review highlighted players below' : 'Everyone selected can make this session'}</small
-    >
-  </div>
-</div>
+<PlannerStats
+  {checkedInCount}
+  playerCount={players.length}
+  rosterCount={plan.team.length}
+  {totalSlots}
+  {roleCounts}
+  {problemCount}
+/>
 
 <div class="workspace">
   <div>
@@ -208,35 +206,15 @@
       <button onclick={rebuild}>↻ Rebuild roster</button>
     </div>
 
-    {#if checkedInCount === 0}
-      <p class="note empty-week">
-        Nobody has checked in for this week yet, so there is nothing to rank. Copy the reminder from the
-        Check-ins panel and post it in Discord.
-      </p>
-    {:else}
-      <div class="candidates">
-        {#each topDays as suggestion, i (suggestion.day)}
-          {@const missing = formatMissing(missingRoles(suggestion.team, settings.targets))}
-          <button
-            class="candidate"
-            class:selected={suggestion.start === plan.start}
-            onclick={() => chooseSuggestion(suggestion)}
-          >
-            <span class="rank">{i === 0 ? '✦ TOP SUGGESTION' : `ALTERNATIVE 0${i}`}</span>
-            <b>{DAYS[suggestion.day]} {formatMonthDay(addDays(weekIso, suggestion.day))}</b>
-            <small>
-              {formatSlot(suggestion.startSlot, guild)} – {formatSlot(
-                suggestion.startSlot + settings.durationSlots,
-                guild,
-              )}
-            </small>
-            <span class="count">{suggestion.team.length} / {totalSlots} roles filled</span>
-            {#if missing}<small class="short">{missing}</small>{/if}
-            <small class="backups">Backups: {formatBackups(suggestion.backups)}</small>
-          </button>
-        {/each}
-      </div>
-    {/if}
+    <SuggestionCards
+      suggestions={topDays}
+      {checkedInCount}
+      {totalSlots}
+      targets={settings.targets}
+      selectedStart={plan.start}
+      {zone}
+      onchoose={chooseSuggestion}
+    />
 
     <div class="panel">
       <div class="section-head">
@@ -294,44 +272,17 @@
   <div>
     <CheckinPanel oncopy={copyText} />
 
-    <section class="panel side-section">
-      <span class="eyebrow gold">RAID READINESS</span>
-      <h2 class="readiness-heading">A party with a plan.</h2>
-      <p>{sessionLabel}</p>
-      {#each ROLES as role, i (role)}
-        {@const full = roleCounts[i] === settings.targets[i]}
-        <div class="check">
-          <span>{role} slots</span>
-          <span class={full ? 'ok' : 'gold'}>{roleCounts[i]} / {settings.targets[i]} {full ? '✓' : ''}</span>
-        </div>
-      {/each}
-      <div class="check"><span>Available players</span><span>{availableCount}</span></div>
-      <div class="check">
-        <span>Backups (tank · healer · damage)</span>
-        <span class={planThinnest > 0 ? 'ok' : 'gold'}>{formatBackups(planBackups)}</span>
-      </div>
-      <div class="check"><span>Locked players</span><span>{plan.locked.length}</span></div>
-      <div class="check">
-        <span>Availability conflicts</span>
-        <span class={problemCount ? 'warning' : 'ok'}>{problemCount ? 'Review required' : 'All clear ✓'}</span
-        >
-      </div>
-      <p class="note">
-        {problemCount
-          ? 'Your roster is kept when you change times. Highlighted players cannot attend the full session.'
-          : 'Move a player between roles or bring an alt. The planner checks every change.'}
-      </p>
-    </section>
-
-    <section class="panel side-section">
-      <span class="eyebrow">COMPOSITION NOTES</span>
-      <p class="small-text">
-        This first pass balances roles and attendance. Encounter-specific buffs, resistances, and player
-        experience still need officer judgment.
-      </p>
-      <div class="check"><span>Classes represented</span><span>{classCount}</span></div>
-      <button class="full-width" onclick={() => (app.view = 'settings')}>Adjust raid requirements</button>
-    </section>
+    <ReadinessPanel
+      {sessionLabel}
+      {roleCounts}
+      targets={settings.targets}
+      {availableCount}
+      backupsLabel={formatBackups(planBackups)}
+      backupsOk={planThinnest > 0}
+      lockedCount={plan.locked.length}
+      {problemCount}
+      {classCount}
+    />
   </div>
 </div>
 
