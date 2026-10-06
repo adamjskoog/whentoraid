@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
 import { createSeedState } from './seed.js'
+import { STATE_VERSION } from './model.js'
 import {
   backupJson,
   clearState,
@@ -24,19 +25,22 @@ function v3State(checkins) {
 /** State as saved by the previous build: no Discord IDs, no deadline. */
 function v4State() {
   const seed = createSeedState()
-  const { checkinDeadline: _deadline, ...settings } = seed.settings
+  const settings = { targets: [2, 4, 14], durationSlots: 6 }
   return {
     ...seed,
     version: 4,
     members: seed.members.map(({ discordId: _id, ...m }) => m),
     settings,
+    weeks: Object.fromEntries(
+      Object.entries(seed.weeks).map(([iso, week]) => [iso, { checkins: week.checkins, plan: null }]),
+    ),
   }
 }
 
 describe('migrateState', () => {
   test('v3 submitted check-ins stay checked in', () => {
     const migrated = migrateState(v3State({ m0: { submitted: true, ranges: [RANGE], declined: [] } }))
-    expect(migrated.version).toBe(5)
+    expect(migrated.version).toBe(STATE_VERSION)
     expect(migrated.weeks['2026-10-05'].checkins.m0).toEqual({
       checkedIn: true,
       ranges: [RANGE],
@@ -61,10 +65,10 @@ describe('migrateState', () => {
 
   test('v4 gains blank Discord IDs and the default check-in deadline', () => {
     const migrated = migrateState(v4State())
-    expect(migrated.version).toBe(5)
+    expect(migrated.version).toBe(STATE_VERSION)
     expect(migrated.members.every((m) => m.discordId === '')).toBe(true)
     expect(migrated.settings.checkinDeadline).toEqual(DEFAULT_CHECKIN_DEADLINE)
-    expect(migrated.settings.targets).toEqual([2, 4, 14])
+    expect(migrated.settings.raids.find((raid) => raid.id === 'raid-20').targets).toEqual([2, 4, 14])
   })
 
   test('v4 migration keeps values that are already present', () => {
@@ -97,7 +101,7 @@ describe('loadState', () => {
       JSON.stringify(v3State({ m0: { submitted: false, ranges: [RANGE], declined: [] } })),
     )
     const loaded = loadState()
-    expect(loaded.version).toBe(5)
+    expect(loaded.version).toBe(STATE_VERSION)
     expect(loaded.weeks['2026-10-05'].checkins.m0.checkedIn).toBe(true)
   })
 
@@ -167,7 +171,7 @@ describe('backups', () => {
   })
 
   test('upgrade backups saved by older versions', () => {
-    expect(parseBackup(JSON.stringify(v4State())).state.version).toBe(5)
+    expect(parseBackup(JSON.stringify(v4State())).state.version).toBe(STATE_VERSION)
   })
 
   test('reject files that are not backups', () => {

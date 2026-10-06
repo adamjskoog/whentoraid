@@ -14,7 +14,10 @@ const DAYS_PER_WEEK = 7
 
 function withPlan(state, weekIso, update) {
   if (!getWeek(state, weekIso).plan) return state
-  return updateWeek(state, weekIso, (week) => ({ ...week, plan: update(week.plan) }))
+  return updateWeek(state, weekIso, (week) => ({
+    ...week,
+    plans: { ...week.plans, [state.currentRaidId]: update(week.plans[state.currentRaidId]) },
+  }))
 }
 
 /**
@@ -43,9 +46,11 @@ export function setCancelled(state, weekIso, cancelled) {
 export function attendanceRecord(state, weekIso, memberId, lookback = RECORD_LOOKBACK_WEEKS) {
   const record = { attended: 0, late: 0, noshow: 0 }
   for (let weeksAgo = 0; weeksAgo < lookback; weeksAgo++) {
-    const plan = state.weeks[addDays(weekIso, -DAYS_PER_WEEK * weeksAgo)]?.plan
-    const status = plan && !plan.cancelled ? plan.attendance?.[memberId] : undefined
-    if (status in record) record[status] += 1
+    const plans = state.weeks[addDays(weekIso, -DAYS_PER_WEEK * weeksAgo)]?.plans ?? {}
+    for (const plan of Object.values(plans)) {
+      const status = !plan.cancelled ? plan.attendance?.[memberId] : undefined
+      if (status in record) record[status] += 1
+    }
   }
   return record
 }

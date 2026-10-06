@@ -1,8 +1,11 @@
 import { slotWindow } from './grid.js'
 import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
 import { addInterval } from './intervals.js'
-import { STATE_VERSION } from './model.js'
+import { enginePlayers, STATE_VERSION } from './model.js'
 import { DEFAULT_DURATION_SLOTS, DEFAULT_TARGETS } from './setup.js'
+import { DEFAULT_RAID_ID, defaultRaids } from './raids.js'
+import { addDays, mondayOf, todayIso } from './time.js'
+import { compose } from './engine.js'
 
 export const SEED_WEEK = '2026-09-28'
 
@@ -149,14 +152,79 @@ export function createSeedState() {
     version: STATE_VERSION,
     currentWeek: SEED_WEEK,
     currentMemberId: 'm0',
+    currentRaidId: DEFAULT_RAID_ID,
     guild: { ...GUILD },
     settings: {
-      targets: [...DEFAULT_TARGETS],
-      durationSlots: DEFAULT_DURATION_SLOTS,
+      raids: defaultRaids(DEFAULT_TARGETS, DEFAULT_DURATION_SLOTS),
       checkinDeadline: { ...DEFAULT_CHECKIN_DEADLINE },
     },
     members,
+    templates: {},
     characters: NAMES.flatMap((_, i) => seedCharacters(i)),
-    weeks: { [SEED_WEEK]: { checkins, plan: null } },
+    weeks: { [SEED_WEEK]: { checkins, plans: {} } },
   }
+}
+
+/** Fresh calendar-year sandbox. Inject time/randomness to reproduce a test without freezing the UI demo. */
+export function createDemoState({ now = Date.now(), random = Math.random } = {}) {
+  const state = createSeedState()
+  const today = todayIso(GUILD.timezone, now)
+  const year = Number(today.slice(0, 4))
+  state.currentWeek = mondayOf(today)
+  state.demoYear = year
+  state.weeks = {}
+  const integer = (min, max) => min + Math.floor(random() * (max - min + 1))
+  for (let weekIso = mondayOf(`${year}-01-01`); weekIso <= `${year}-12-31`; weekIso = addDays(weekIso, 7)) {
+    // Give each week a different shared night plus patchier alternatives and occasional absences.
+    const strongDay = integer(0, 6)
+    const strongStart = integer(10, 16)
+    const checkins = Object.fromEntries(
+      state.members.map((member) => {
+        const response = random()
+        if (response < 0.06) return [member.id, { checkedIn: false, ranges: [], declined: [] }]
+        if (response < 0.12) return [member.id, { checkedIn: true, ranges: [], declined: [] }]
+        let ranges = []
+        for (let day = 0; day < 7; day++) {
+          if (day !== strongDay && random() < 0.4) continue
+          const start = day === strongDay ? strongStart : integer(6, 17)
+          const duration = day === strongDay ? 6 : integer(4, Math.min(10, GUILD.slotsPerDay - start))
+          ranges = addInterval(ranges, slotWindow(weekIso, day, start, duration, GUILD))
+        }
+        const declined = state.characters
+          .filter((c) => c.memberId === member.id && !c.main && random() < 0.25)
+          .map((c) => c.id)
+        return [member.id, { checkedIn: true, ranges, declined }]
+      }),
+    )
+    const week = { checkins, plans: {} }
+    state.weeks[weekIso] = week
+    // Shuffle candidate order so different people make the roster each time.
+    const players = enginePlayers(state, weekIso)
+    for (let i = players.length - 1; i > 0; i--) {
+      const other = integer(0, i)
+      ;[players[i], players[other]] = [players[other], players[i]]
+    }
+    for (const [index, raid] of state.settings.raids.entries()) {
+      const day = (strongDay + index) % 7
+      const window = slotWindow(weekIso, day, strongStart, raid.durationSlots, GUILD)
+      const { team } = compose(players, window, raid.targets)
+      const past = window.end < now
+      const attendance = past
+        ? Object.fromEntries(
+            team.map((entry) => {
+              const roll = random()
+              return [entry.memberId, roll < 0.08 ? 'noshow' : roll < 0.18 ? 'late' : 'attended']
+            }),
+          )
+        : {}
+      week.plans[raid.id] = {
+        start: window.start,
+        team,
+        locked: [],
+        attendance,
+        cancelled: past && random() < 0.04,
+      }
+    }
+  }
+  return state
 }

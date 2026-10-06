@@ -55,18 +55,20 @@ async function fetchAll(makeQuery, table) {
  */
 export async function fetchGuild(client, guildId, sinceWeek) {
   const byGuild = (table) => fetchAll(() => client.from(table).select('*').eq('guild_id', guildId), table)
-  const [guilds, members, characters, checkins, plans] = await Promise.all([
-    client.from('guilds').select('*').eq('id', guildId),
+  const guilds = check(await client.from('guilds').select('*').eq('id', guildId))
+  if (!guilds.length) throw friendlyError({ code: 'PGRST116' })
+  const fromWeek = guilds[0].settings.demoYear ? '0001-01-01' : sinceWeek
+  const [members, characters, checkins, plans, templates] = await Promise.all([
     byGuild('members'),
     byGuild('characters'),
     fetchAll(
-      () => client.from('checkins').select('*').eq('guild_id', guildId).gte('week', sinceWeek),
+      () => client.from('checkins').select('*').eq('guild_id', guildId).gte('week', fromWeek),
       'checkins',
     ),
     byGuild('plans'),
+    byGuild('availability_templates'),
   ])
-  const rows = { guilds: check(guilds), members, characters, checkins, plans }
-  if (!rows.guilds.length) throw friendlyError({ code: 'PGRST116' })
+  const rows = { guilds, members, characters, checkins, plans, availability_templates: templates }
   return rows
 }
 

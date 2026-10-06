@@ -2,6 +2,8 @@ import { CLASS_COLORS, DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from './constant
 import { gridFromHours, raidHours, validateDeadline, validateGuild } from './guild.js'
 import { addInterval, removeInterval } from './intervals.js'
 import { addDays, isIsoDate, mondayOf } from './time.js'
+import { getRaid, validateRaid } from './raids.js'
+import { templateFromRanges, templateRanges } from './availability-template.js'
 
 /**
  * Members and characters are stored once. Each week holds only check-ins
@@ -20,22 +22,23 @@ import { addDays, isIsoDate, mondayOf } from './time.js'
  *   `start` is the session start in UTC ms. `locked` lists member IDs that rebuilds must keep.
  *   `attendance` records what happened for rostered members; `cancelled` marks a raid that did not run.
  *   Plans saved by older versions may lack the optional fields.
- * @typedef {{ checkins: Record<string, Checkin>, plan: Plan | null }} Week
+ * @typedef {{ checkins: Record<string, Checkin>, plans: Record<string, Plan> }} Week
  * @typedef {{ day: number, minutes: number }} Deadline
  *   Weekly check-in deadline: day of the week (0 = Monday) and minutes after midnight, guild time.
  * @typedef {{
  *   version: number,
  *   currentWeek: string,
+ *   currentRaidId: string,
  *   currentMemberId: string,
  *   guild: { name: string, timezone: string, dayStartHour: number, slotsPerDay: number, discordServerId: string, officerRoleIds: string },
- *   settings: { targets: number[], durationSlots: number, checkinDeadline: Deadline | null },
+ *   settings: { raids: { id: string, name: string, size: number, targets: number[], durationSlots: number }[], checkinDeadline: Deadline | null },
  *   members: Member[],
  *   characters: Character[],
  *   weeks: Record<string, Week>,
  * }} AppState
  */
 
-export const STATE_VERSION = 5
+export const STATE_VERSION = 7
 
 const CHARACTER_FIELDS = [
   { key: 'name', label: 'Name', max: 30 },
@@ -48,11 +51,16 @@ export function emptyCheckin() {
 }
 
 export function getWeek(state, weekIso) {
-  return state.weeks[weekIso] ?? { checkins: {}, plan: null }
+  const week = state.weeks[weekIso] ?? { checkins: {}, plans: {} }
+  // `plan` is a view of the selected raid; only the plans map is persisted.
+  return { ...week, plan: week.plans[state.currentRaidId] ?? null }
 }
 
 export function getCheckin(state, weekIso, memberId) {
-  return getWeek(state, weekIso).checkins[memberId] ?? emptyCheckin()
+  const saved = getWeek(state, weekIso).checkins[memberId]
+  if (saved) return saved
+  const ranges = templateRanges(state.templates?.[memberId], weekIso)
+  return ranges === null ? emptyCheckin() : { checkedIn: true, ranges, declined: [] }
 }
 
 export function memberById(state, memberId) {
@@ -67,8 +75,11 @@ export function charactersOf(state, memberId) {
   return state.characters.filter((c) => c.memberId === memberId)
 }
 
-export function isOffered(checkin, characterId) {
-  return !checkin.declined.includes(characterId)
+export function isOffered(checkin, characterId, raidId) {
+  const preference = checkin.raids?.[raidId]
+  return (
+    preference?.participating !== false && !(preference?.declined ?? checkin.declined).includes(characterId)
+  )
 }
 
 /** The shape the scheduling engine works with, for one week. */
@@ -83,7 +94,7 @@ export function enginePlayers(state, weekIso) {
         id: c.id,
         role: c.role,
         main: c.main,
-        offered: isOffered(checkin, c.id),
+        offered: isOffered(checkin, c.id, state.currentRaidId),
       })),
     }
   })
@@ -91,7 +102,8 @@ export function enginePlayers(state, weekIso) {
 
 /** Replace one week with `update(week)`. */
 export function updateWeek(state, weekIso, update) {
-  return { ...state, weeks: { ...state.weeks, [weekIso]: update(getWeek(state, weekIso)) } }
+  const week = state.weeks[weekIso] ?? { checkins: {}, plans: {} }
+  return { ...state, weeks: { ...state.weeks, [weekIso]: update(week) } }
 }
 
 /**
@@ -106,6 +118,7 @@ export const CHECKIN_HISTORY_WEEKS = 12
  * nothing is old enough to prune.
  */
 export function pruneOldWeeks(state, thisWeekIso, keepWeeks = CHECKIN_HISTORY_WEEKS) {
+  if (state.demoYear) return state
   const cutoff = addDays(thisWeekIso, -7 * keepWeeks)
   const isOld = ([weekIso, week]) => weekIso < cutoff && Object.keys(week.checkins).length > 0
   if (!Object.entries(state.weeks).some(isOld)) return state
@@ -113,7 +126,7 @@ export function pruneOldWeeks(state, thisWeekIso, keepWeeks = CHECKIN_HISTORY_WE
   const weeks = Object.fromEntries(
     Object.entries(state.weeks)
       .map((entry) => (isOld(entry) ? [entry[0], { ...entry[1], checkins: {} }] : entry))
-      .filter(([weekIso, week]) => weekIso >= cutoff || week.plan),
+      .filter(([weekIso, week]) => weekIso >= cutoff || Object.keys(week.plans).length),
   )
   return { ...state, weeks }
 }
@@ -121,7 +134,7 @@ export function pruneOldWeeks(state, thisWeekIso, keepWeeks = CHECKIN_HISTORY_WE
 function withCheckin(state, weekIso, memberId, update) {
   return updateWeek(state, weekIso, (week) => ({
     ...week,
-    checkins: { ...week.checkins, [memberId]: update(week.checkins[memberId] ?? emptyCheckin()) },
+    checkins: { ...week.checkins, [memberId]: update(getCheckin(state, weekIso, memberId)) },
   }))
 }
 
@@ -139,17 +152,64 @@ export function markUnavailable(state, weekIso, memberId) {
   return withCheckin(state, weekIso, memberId, (checkin) => ({ ...checkin, checkedIn: true, ranges: [] }))
 }
 
-export function setCharacterOffered(state, weekIso, memberId, characterId, offered) {
+export function setCharacterOffered(
+  state,
+  weekIso,
+  memberId,
+  characterId,
+  offered,
+  raidId = state.currentRaidId,
+) {
   return withCheckin(state, weekIso, memberId, (checkin) => {
-    const others = checkin.declined.filter((id) => id !== characterId)
-    return { ...checkin, checkedIn: true, declined: offered ? others : [...others, characterId] }
+    const preference = checkin.raids?.[raidId] ?? { participating: true, declined: checkin.declined }
+    const others = preference.declined.filter((id) => id !== characterId)
+    return {
+      ...checkin,
+      checkedIn: true,
+      raids: {
+        ...checkin.raids,
+        [raidId]: { ...preference, declined: offered ? others : [...others, characterId] },
+      },
+    }
   })
+}
+
+export function setRaidParticipation(state, weekIso, memberId, raidId, participating) {
+  if (!state.settings.raids.some((raid) => raid.id === raidId)) return state
+  return withCheckin(state, weekIso, memberId, (checkin) => ({
+    ...checkin,
+    checkedIn: true,
+    raids: {
+      ...checkin.raids,
+      [raidId]: { declined: checkin.raids?.[raidId]?.declined ?? checkin.declined, participating },
+    },
+  }))
+}
+
+export function saveAvailabilityTemplate(state, weekIso, memberId) {
+  const checkin = getCheckin(state, weekIso, memberId)
+  return {
+    ...state,
+    templates: { ...state.templates, [memberId]: templateFromRanges(weekIso, checkin.ranges, state.guild) },
+  }
+}
+
+export function removeAvailabilityTemplate(state, memberId) {
+  const { [memberId]: _removed, ...templates } = state.templates ?? {}
+  return { ...state, templates }
+}
+
+/** Reset just the week's time override; keep its raid and character choices. */
+export function useAvailabilityTemplate(state, weekIso, memberId) {
+  const ranges = templateRanges(state.templates?.[memberId], weekIso)
+  if (ranges === null) return state
+  return withCheckin(state, weekIso, memberId, (checkin) => ({ ...checkin, checkedIn: true, ranges }))
 }
 
 /** True when the member offers at least one character this week, so the planner can place them. */
 export function isOfferingAny(state, weekIso, memberId) {
   const checkin = getCheckin(state, weekIso, memberId)
-  return charactersOf(state, memberId).some((c) => isOffered(checkin, c.id))
+  return charactersOf(state, memberId).some((c) => isOffered(checkin, c.id, state.currentRaidId))
 }
 
 /** Keep only the entries of a member-keyed record whose member is still on the team. */
@@ -168,15 +228,20 @@ export function setPlan(state, weekIso, plan) {
   const onTeam = new Set(plan.team.map((e) => e.memberId))
   const locked = (plan.locked ?? []).filter((id) => onTeam.has(id))
   return updateWeek(state, weekIso, (week) => {
-    const sameSession = week.plan?.start === plan.start
+    const previous = week.plans[state.currentRaidId]
+    const sameSession = previous?.start === plan.start
     return {
       ...week,
-      plan: {
-        start: plan.start,
-        team: [...plan.team],
-        locked,
-        attendance: onlyTeam(plan.attendance ?? (sameSession ? week.plan.attendance : {}), plan.team),
-        cancelled: plan.cancelled ?? (sameSession && Boolean(week.plan.cancelled)),
+      plans: {
+        ...week.plans,
+        [state.currentRaidId]: {
+          start: plan.start,
+          team: [...plan.team],
+          locked,
+          attendance: onlyTeam(plan.attendance ?? (sameSession ? previous.attendance : {}), plan.team),
+          cancelled: plan.cancelled ?? (sameSession && Boolean(previous.cancelled)),
+          published: previous?.published ?? null,
+        },
       },
     }
   })
@@ -241,7 +306,8 @@ export function setMainCharacter(state, memberId, characterId) {
 export function planWithout(plan, isRemoved) {
   const team = plan.team.filter((e) => !isRemoved(e))
   const locked = (plan.locked ?? []).filter((id) => team.some((e) => e.memberId === id))
-  return { ...plan, team, locked, attendance: onlyTeam(plan.attendance, team) }
+  const published = plan.published?.team.some(isRemoved) ? null : plan.published
+  return { ...plan, team, locked, attendance: onlyTeam(plan.attendance, team), published: published ?? null }
 }
 
 function withoutCharacter(plan, characterId) {
@@ -270,10 +336,26 @@ export function deleteCharacter(state, memberId, characterId) {
       const checkins = Object.fromEntries(
         Object.entries(week.checkins).map(([id, checkin]) => [
           id,
-          { ...checkin, declined: checkin.declined.filter((d) => d !== characterId) },
+          {
+            ...checkin,
+            declined: checkin.declined.filter((d) => d !== characterId),
+            ...(checkin.raids
+              ? {
+                  raids: Object.fromEntries(
+                    Object.entries(checkin.raids).map(([raidId, pref]) => [
+                      raidId,
+                      { ...pref, declined: pref.declined.filter((d) => d !== characterId) },
+                    ]),
+                  ),
+                }
+              : {}),
+          },
         ]),
       )
-      return [weekIso, { ...week, checkins, plan: week.plan && withoutCharacter(week.plan, characterId) }]
+      const plans = Object.fromEntries(
+        Object.entries(week.plans).map(([id, plan]) => [id, withoutCharacter(plan, characterId)]),
+      )
+      return [weekIso, { ...week, checkins, plans }]
     }),
   )
   return { state: { ...state, characters, weeks } }
@@ -286,7 +368,7 @@ export function deleteCharacter(state, memberId, characterId) {
 export function preferredCharacter(state, weekIso, memberId) {
   const checkin = getCheckin(state, weekIso, memberId)
   const mine = charactersOf(state, memberId)
-  const offered = mine.filter((c) => isOffered(checkin, c.id))
+  const offered = mine.filter((c) => isOffered(checkin, c.id, state.currentRaidId))
   return offered.find((c) => c.main) ?? offered[0] ?? mine.find((c) => c.main) ?? mine[0]
 }
 
@@ -301,7 +383,12 @@ export function preferredCharacter(state, weekIso, memberId) {
 /** Complete settings input: fields the caller left out keep their current values. */
 function withCurrentSettings(state, input) {
   const { startHour, endHour } = raidHours(state.guild)
+  const raid = getRaid(state)
   return {
+    targets: raid.targets,
+    durationSlots: raid.durationSlots,
+    raidName: raid.name,
+    raidSize: raid.size,
     discordServerId: state.guild.discordServerId,
     officerRoleIds: state.guild.officerRoleIds,
     guildName: state.guild.name,
@@ -341,14 +428,28 @@ export function validateSettings(input) {
  */
 export function saveSettings(state, input) {
   const full = withCurrentSettings(state, input)
-  const error = validateSettings(full)
+  const settingsError = validateSettings(full)
+  if (settingsError) return { state, error: settingsError }
+  const raid = {
+    ...getRaid(state),
+    name: full.raidName.trim(),
+    size: full.raidSize,
+    targets: [...full.targets],
+    durationSlots: full.durationSlots,
+  }
+  const error = validateRaid(raid)
   if (error) return { state, error }
+  const raids = state.settings.raids.map((item) => (item.id === raid.id ? raid : item))
+  const hoursError = validateGuild(
+    { name: full.guildName, timezone: full.timezone, startHour: full.startHour, endHour: full.endHour },
+    Math.max(...raids.map((item) => item.durationSlots)),
+  )
+  if (hoursError) return { state, error: hoursError }
   return {
     state: {
       ...state,
       settings: {
-        targets: [...full.targets],
-        durationSlots: full.durationSlots,
+        raids,
         checkinDeadline: full.checkinDeadline && { ...full.checkinDeadline },
       },
       guild: {

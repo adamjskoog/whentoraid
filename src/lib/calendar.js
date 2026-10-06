@@ -1,5 +1,6 @@
 import { ROLES } from './constants.js'
 import { characterById } from './model.js'
+import { DEFAULT_RAID_ID, getRaid } from './raids.js'
 
 /** RFC 5545 caps content lines at 75 octets. */
 const MAX_OCTETS = 75
@@ -72,19 +73,22 @@ function rosterSummary(state, team) {
  * @param {{ start: number, end: number, team: import('./engine.js').RosterEntry[] }} plan
  */
 export function rosterIcs(state, plan, now = Date.now()) {
+  // Keep the old event identity for migrated rosters; the new raids need their own identities.
+  const raidPrefix = state.currentRaidId === DEFAULT_RAID_ID ? '' : `${state.currentRaidId}-`
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//WhenToRaid//Raid planner//EN',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
-    `UID:raid-${state.currentWeek}-${slug(state.guild.name)}@whentoraid`,
+    `UID:raid-${raidPrefix}${state.currentWeek}-${slug(state.guild.name)}@whentoraid`,
     `SEQUENCE:${Math.floor(now / 1000)}`,
     `DTSTAMP:${icsTime(now)}`,
     `DTSTART:${icsTime(plan.start)}`,
     `DTEND:${icsTime(plan.end)}`,
-    `SUMMARY:${icsEscape(`${state.guild.name} raid`)}`,
-    `DESCRIPTION:${icsEscape(rosterSummary(state, plan.team))}`,
+    `SUMMARY:${icsEscape(`${state.guild.name} — ${plan.raidName ?? getRaid(state).name}`)}`,
+    `STATUS:${plan.cancelled ? 'CANCELLED' : plan.publishedAt != null ? 'CONFIRMED' : 'TENTATIVE'}`,
+    `DESCRIPTION:${icsEscape(`${plan.publishedAt != null ? 'Published roster' : 'Draft roster — not confirmed'}\n${rosterSummary(state, plan.team)}`)}`,
     'END:VEVENT',
     'END:VCALENDAR',
   ]

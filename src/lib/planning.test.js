@@ -63,7 +63,13 @@ describe('applySettings', () => {
     const late = windows.find((w) => w.day === 4 && w.startSlot === 18)
     const state = setPlan(initial, SEED_WEEK, { start: late.start, team: [] })
 
-    const input = { targets: [1, 1, 2], durationSlots: 8, discordServerId: '', officerRoleIds: '' }
+    const input = {
+      targets: [1, 1, 2],
+      raidSize: 4,
+      durationSlots: 8,
+      discordServerId: '',
+      officerRoleIds: '',
+    }
     const { state: next, error } = applySettings(state, input)
     expect(error).toBeUndefined()
 
@@ -94,7 +100,7 @@ function stateWithLastWeekPlanned() {
     ]),
   )
   const state = setCurrentWeek(
-    { ...planned, weeks: { ...planned.weeks, [NEXT_WEEK]: { checkins: shifted, plan: null } } },
+    { ...planned, weeks: { ...planned.weeks, [NEXT_WEEK]: { checkins: shifted, plans: {} } } },
     NEXT_WEEK,
   )
   const benchedLastWeek = seed.members
@@ -176,7 +182,13 @@ describe('locks', () => {
     const keep = plan.team.filter((e) => e.role === 'DPS').at(-1)
     const state = setPlan(initial, SEED_WEEK, { start: plan.start, team: plan.team, locked: [keep.memberId] })
 
-    const input = { targets: [2, 4, 1], durationSlots: 6, discordServerId: '', officerRoleIds: '' }
+    const input = {
+      targets: [2, 4, 1],
+      raidSize: 7,
+      durationSlots: 6,
+      discordServerId: '',
+      officerRoleIds: '',
+    }
     const next = plannerContext(applySettings(state, input).state).plan
     expect(next.team.filter((e) => e.role === 'DPS')).toEqual([keep])
     expect(next.locked).toEqual([keep.memberId])

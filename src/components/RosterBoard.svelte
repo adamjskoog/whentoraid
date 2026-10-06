@@ -1,11 +1,27 @@
 <script>
   import { app } from '../lib/app.svelte.js'
-  import { ROLES } from '../lib/constants.js'
-  import { characterById, preferredCharacter } from '../lib/model.js'
+  import { ROLES, CLASS_NAMES } from '../lib/constants.js'
+  import { characterById, charactersOf, memberById, preferredCharacter } from '../lib/model.js'
   import { benchGroups } from '../lib/planning.js'
   import PlayerCard from './PlayerCard.svelte'
+  import CollapsibleSection from './CollapsibleSection.svelte'
 
-  let { team, players, window, targets, onplace, onbench, onedit, onadd, locked = [], onlock } = $props()
+  let {
+    team,
+    players,
+    window,
+    targets,
+    onplace,
+    onbench,
+    onedit,
+    onadd,
+    locked = [],
+    onlock,
+    readonly = false,
+  } = $props()
+  let search = $state('')
+  let filterRole = $state('')
+  let filterClass = $state('')
 
   const BENCH_SECTIONS = [
     { key: 'available', title: 'Free for this session', empty: 'Nobody else can stay the whole session.' },
@@ -18,7 +34,18 @@
 
   function benchEntries(memberIds) {
     return memberIds
-      .map((id) => preferredCharacter(app.data, app.data.currentWeek, id))
+      .map((id) => {
+        const matches = charactersOf(app.data, id).filter(
+          (c) =>
+            (!filterRole || c.role === filterRole) &&
+            (!filterClass || c.class === filterClass) &&
+            `${memberById(app.data, id)?.name} ${c.name} ${c.spec} ${c.class}`
+              .toLowerCase()
+              .includes(search.trim().toLowerCase()),
+        )
+        const preferred = preferredCharacter(app.data, app.data.currentWeek, id)
+        return matches.find((c) => c.id === preferred?.id) ?? matches[0]
+      })
       .filter(Boolean)
       .map((c) => ({ memberId: c.memberId, characterId: c.id, role: c.role }))
   }
@@ -39,6 +66,7 @@
 
   /** Mouse drops (native drag-and-drop) and touch drops (touchDrag) both end here. */
   function move(entry, target) {
+    if (readonly) return
     if (target === 'bench') onbench(entry.memberId)
     else onplace(entry.memberId, entry.characterId, target)
   }
@@ -65,13 +93,14 @@
           {entry}
           {players}
           {window}
+          {readonly}
           onedit={() => onedit(entry.memberId)}
           onmove={(target) => move(entry, target)}
           locked={locked.includes(entry.memberId)}
           onlock={onlock && (() => onlock(entry.memberId))}
         />
       {/each}
-      {#if entries.length < targets[i]}
+      {#if !readonly && entries.length < targets[i]}
         <button class="empty-slot" onclick={() => onadd(role)}>
           + Add {role.toLowerCase()} · {targets[i] - entries.length} open
         </button>
@@ -88,30 +117,58 @@
   ondragover={(e) => e.preventDefault()}
   ondrop={(e) => dropNative(e, 'bench')}
 >
-  <div class="section-head">
-    <h3>On the bench <span class="gold">{benchCount}</span></h3>
-    <small>Drag to a role (press and hold on touch), or use + to add</small>
-  </div>
-  {#each BENCH_SECTIONS as section (section.key)}
-    {@const entries = benchEntries(groups[section.key])}
-    {#if entries.length || section.empty}
-      <h4 class="bench-group">{section.title} <span>{entries.length}</span></h4>
-      {#if entries.length}
-        <div class="bench-list" class:dimmed={section.key !== 'available'}>
-          {#each entries as entry (entry.memberId)}
-            <PlayerCard
-              {entry}
-              {players}
-              {window}
-              bench
-              onedit={() => onedit(entry.memberId)}
-              onmove={(target) => move(entry, target)}
-            />
-          {/each}
-        </div>
-      {:else}
-        <p class="small-text">{section.empty}</p>
-      {/if}
+  <CollapsibleSection title={`On the bench ${benchCount}`}>
+    <div class="settings-grid">
+      <label class="field"
+        >Search bench<input type="search" placeholder="Player or character name" bind:value={search} /></label
+      >
+      <label class="field"
+        >Bench role<select bind:value={filterRole}
+          ><option value="">All roles</option>{#each ROLES as role (role)}<option>{role}</option
+            >{/each}</select
+        ></label
+      >
+      <label class="field"
+        >Bench class<select bind:value={filterClass}
+          ><option value="">All classes</option>{#each CLASS_NAMES as cls (cls)}<option>{cls}</option
+            >{/each}</select
+        ></label
+      >
+    </div>
+    {#if search || filterRole || filterClass}
+      <p class="note" role="status">
+        {Object.values(groups).flatMap(benchEntries).length} of {benchCount} players match.
+        <button
+          onclick={() => {
+            search = ''
+            filterRole = ''
+            filterClass = ''
+          }}>Clear filters</button
+        >
+      </p>
     {/if}
-  {/each}
+    {#each BENCH_SECTIONS as section (section.key)}
+      {@const entries = benchEntries(groups[section.key])}
+      {#if entries.length || section.empty}
+        <h4 class="bench-group">{section.title} <span>{entries.length}</span></h4>
+        {#if entries.length}
+          <div class="bench-list" class:dimmed={section.key !== 'available'}>
+            {#each entries as entry (entry.memberId)}
+              <PlayerCard
+                {entry}
+                {players}
+                {window}
+                {readonly}
+                bench
+                onedit={() => onedit(entry.memberId)}
+                onmove={(target) => move(entry, target)}
+              />
+            {/each}
+          </div>
+        {:else}
+          <p class="small-text">{section.empty}</p>
+        {/if}
+      {/if}
+    {/each}
+  </CollapsibleSection>
 </div>

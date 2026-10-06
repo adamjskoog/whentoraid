@@ -182,10 +182,11 @@ describe('saveSettings', () => {
     const { state, error } = saveSettings(createSeedState(), {
       ...base,
       targets: [1, 2, 7],
+      raidSize: 10,
       discordServerId: '123',
     })
     expect(error).toBeUndefined()
-    expect(state.settings.targets).toEqual([1, 2, 7])
+    expect(state.settings.raids.find((raid) => raid.id === state.currentRaidId).targets).toEqual([1, 2, 7])
     expect(state.guild.discordServerId).toBe('123')
   })
 
@@ -210,19 +211,19 @@ describe('pruneOldWeeks', () => {
 
   test('drops old check-ins but keeps old plans for attendance records', () => {
     const state = withWeeks({
-      '2026-01-05': { checkins, plan },
-      '2026-01-12': { checkins, plan: null },
-      '2026-09-28': { checkins, plan: null },
+      '2026-01-05': { checkins, plans: { 'raid-20': plan } },
+      '2026-01-12': { checkins, plans: {} },
+      '2026-09-28': { checkins, plans: {} },
     })
     const pruned = pruneOldWeeks(state, '2026-09-28', 12)
     expect(pruned.weeks).toEqual({
-      '2026-01-05': { checkins: {}, plan },
-      '2026-09-28': { checkins, plan: null },
+      '2026-01-05': { checkins: {}, plans: { 'raid-20': plan } },
+      '2026-09-28': { checkins, plans: {} },
     })
   })
 
   test('keeps weeks inside the history window whole', () => {
-    const state = withWeeks({ '2026-07-06': { checkins, plan: null } })
+    const state = withWeeks({ '2026-07-06': { checkins, plans: {} } })
     expect(pruneOldWeeks(state, '2026-09-28', 12)).toBe(state)
   })
 

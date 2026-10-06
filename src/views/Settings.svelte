@@ -2,8 +2,11 @@
   import OnlineAccount from '../components/OnlineAccount.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import RestoreButton from '../components/RestoreButton.svelte'
+  import RaidSelector from '../components/RaidSelector.svelte'
+  import CompositionFields from '../components/CompositionFields.svelte'
+  import { getRaid } from '../lib/raids.js'
   import { app } from '../lib/app.svelte.js'
-  import { DAYS, DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from '../lib/constants.js'
+  import { DAYS, ROLES } from '../lib/constants.js'
   import { END_HOUR_OPTIONS, START_HOUR_OPTIONS } from '../lib/forms.js'
   import {
     DEFAULT_CHECKIN_DEADLINE,
@@ -14,26 +17,21 @@
   } from '../lib/guild.js'
   import { applySettings } from '../lib/planning.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
-  import { createSeedState } from '../lib/seed.js'
+  import { createDemoState } from '../lib/seed.js'
   import { downloadText } from '../lib/download.js'
   import { backupJson, clearState } from '../lib/storage.js'
   import { todayIso } from '../lib/time.js'
   import { offerUndo, showToast } from '../lib/toast.svelte.js'
 
-  const settings = $derived(app.data.settings)
+  const settings = $derived(getRaid(app.data))
   const guild = $derived(app.data.guild)
   const hours = $derived(raidHours(guild))
   const zones = $derived(timeZoneOptions(guild.timezone))
-  const deadline = $derived(settings.checkinDeadline ?? DEFAULT_CHECKIN_DEADLINE)
+  const deadline = $derived(app.data.settings.checkinDeadline ?? DEFAULT_CHECKIN_DEADLINE)
 
   let hasDeadline = $state(app.data.settings.checkinDeadline !== null)
   /** Both "start over" actions erase the guild, so each takes two clicks: 'demo' | 'new' | null. */
   let confirming = $state(null)
-
-  function durationLabel(slots) {
-    const hoursLong = slots / 2
-    return `${hoursLong} ${hoursLong === 1 ? 'hour' : 'hours'}`
-  }
 
   function save(event) {
     event.preventDefault()
@@ -43,6 +41,8 @@
     }
     const form = new FormData(event.currentTarget)
     const result = applySettings(app.data, {
+      raidName: String(form.get('raidName') ?? ''),
+      raidSize: Number(form.get('raidSize')),
       targets: ROLES.map((_, i) => Number(form.get(`role${i}`))),
       durationSlots: Number(form.get('duration')),
       discordServerId: String(form.get('discordServerId') ?? '').trim(),
@@ -60,7 +60,7 @@
       return
     }
     app.data = result.state
-    showToast('Settings saved; roster rebuilt')
+    showToast('Guild settings and selected raid composition saved')
     app.view = 'planner'
   }
 
@@ -71,7 +71,7 @@
     }
     const previous = app.data
     app.view = 'planner'
-    app.data = createSeedState()
+    app.data = createDemoState()
     offerUndo('Demo guild loaded.', previous)
   }
 
@@ -102,8 +102,10 @@
 <PageTitle
   eyebrow="THE RULES OF YOUR RAID"
   title="Guild settings"
-  subtitle="Set the raid requirements used by every suggestion."
+  subtitle="Choose a raid to edit its composition. Guild details apply to all raids."
 />
+
+<RaidSelector />
 
 <form class="panel settings-panel" onsubmit={save}>
   <h2>Guild</h2>
@@ -138,29 +140,10 @@
   </div>
 
   <h2>Raid composition</h2>
-  <div class="settings-grid">
-    {#each ROLES as role, i (role)}
-      <label class="field">
-        {role} slots
-        <input
-          name="role{i}"
-          type="number"
-          min="0"
-          max={MAX_RAID_SIZE}
-          required
-          value={settings.targets[i]}
-        />
-      </label>
-    {/each}
-    <label class="field">
-      Raid duration
-      <select name="duration">
-        {#each DURATION_OPTIONS as slots (slots)}
-          <option value={slots} selected={settings.durationSlots === slots}>{durationLabel(slots)}</option>
-        {/each}
-      </select>
-    </label>
-  </div>
+  <p>Editing {settings.name}. The role slots must add up to the raid size.</p>
+  {#key settings.id}
+    <CompositionFields raid={settings} />
+  {/key}
 
   <h2>Weekly check-in deadline</h2>
   <p>Shown in the planner and used in “Copy reminder”, so everyone answers before you pick a night.</p>
@@ -246,6 +229,10 @@
   <section class="panel settings-panel spaced-top">
     <h2>Start over</h2>
     <p>Your guild is saved only in this browser. Both options below erase it here.</p>
+    <p>
+      The demo generates a fresh calendar year of sample availability and plans for all three raids every
+      time.
+    </p>
     <div class="buttons">
       <button class:danger={confirming === 'demo'} onclick={loadDemo}>
         {confirming === 'demo' ? 'Click again to replace your guild' : 'Replace with the demo guild'}

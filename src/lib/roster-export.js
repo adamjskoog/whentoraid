@@ -1,9 +1,10 @@
 import { ROLES } from './constants.js'
 import { conflicts } from './engine.js'
-import { formatSession } from './grid.js'
+import { formatSessionIn } from './grid.js'
 import { characterById, memberById } from './model.js'
 import { benchGroups } from './planning.js'
 import { formatMonthDay } from './time.js'
+import { getRaid } from './raids.js'
 
 /** Discord's per-message limit without Nitro. */
 export const DISCORD_MESSAGE_LIMIT = 2000
@@ -19,7 +20,8 @@ function describeEntry(state, entry, players, plan) {
 
 /** Plain-text roster for sharing outside the app. */
 export function rosterText(state, plan, players) {
-  const { guild, settings, currentWeek } = state
+  const { guild, currentWeek } = state
+  const settings = getRaid(state)
   const lines = plan.team.map((entry) => {
     const described = describeEntry(state, entry, players, plan)
     if (!described) return `${entry.role}: (missing character)`
@@ -29,8 +31,9 @@ export function rosterText(state, plan, players) {
   })
   return [
     `WhenToRaid — week of ${currentWeek}`,
-    `${formatSession(plan.day, plan.startSlot, settings.durationSlots, guild)} · ${guild.timezone}`,
-    'DRAFT ROSTER',
+    plan.raidName ?? settings.name,
+    `${formatSessionIn(plan, guild.timezone)} · ${guild.timezone}`,
+    plan.cancelled ? 'CANCELLED RAID' : plan.publishedAt != null ? 'PUBLISHED ROSTER' : 'DRAFT ROSTER',
     ...lines,
     ...benchLines(state, players, plan, (text) => `${text}:`, String),
   ].join('\n')
@@ -50,7 +53,8 @@ const discordTime = (ms, style) => `<t:${Math.floor(ms / 1000)}:${style}>`
 
 /** Markdown roster for pasting into Discord. Times use Discord timestamps, shown in each reader's timezone. */
 export function rosterDiscord(state, plan, players) {
-  const { guild, settings, currentWeek } = state
+  const { guild, currentWeek } = state
+  const settings = getRaid(state)
 
   const roleSections = ROLES.flatMap((role, i) => {
     const entries = plan.team.filter((e) => e.role === role)
@@ -61,11 +65,21 @@ export function rosterDiscord(state, plan, players) {
       const warningText = warnings.length ? ` ⚠ ${warnings.join(', ')}` : ''
       return `- ${escapeDiscord(character.name)} (${escapeDiscord(member.name)}) · ${escapeDiscord(`${character.spec} ${character.class}`)}${warningText}`
     })
-    return [`**${ROLE_HEADINGS[role]} (${entries.length}/${settings.targets[i]})**`, ...lines, '']
+    return [
+      `**${ROLE_HEADINGS[role]} (${entries.length}/${(plan.targets ?? settings.targets)[i]})**`,
+      ...lines,
+      '',
+    ]
   })
 
   return [
     `**${escapeDiscord(guild.name)} · raid roster · week of ${formatMonthDay(currentWeek)}**`,
+    `**${escapeDiscord(plan.raidName ?? settings.name)}**`,
+    plan.cancelled
+      ? '**CANCELLED RAID**'
+      : plan.publishedAt != null
+        ? '**PUBLISHED ROSTER**'
+        : '**DRAFT ROSTER — not confirmed**',
     `${discordTime(plan.start, 'F')} – ${discordTime(plan.end, 't')}`,
     '',
     ...roleSections,

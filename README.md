@@ -131,12 +131,17 @@ Realtime change events are filtered to guild members, except delete events. Thos
 
 ## Data model
 
+Version 6 adds `settings.raids` and a `plans` map keyed by raid ID in each week. The selected raid is a viewer preference (`currentRaidId`); weekly availability stays shared. Existing saves and backups migrate their composition and plan into `raid-20`, keeping rosters, locks, and attendance. New guilds have two 10-player raids (2 tanks / 2 healers / 6 damage) and one 20-player raid (2 / 4 / 14). These are editable starting compositions, not verified encounter requirements. Rename each raid in Guild settings when its name is known.
+
+For an existing online installation, apply `supabase/migrations/20261005130000_multiple_raids.sql` before deploying this build. The plan primary key is now `(guild_id, week, raid_id)`, and guild settings store all three compositions. The migration keeps existing plans under `raid-20` and preserves the existing access policies. Old frontend builds should be reloaded after deployment.
+
 Members and characters are stored once. Each week holds only check-ins (availability as UTC time ranges, plus characters declined that week) and the officer's plan (session start in UTC plus the roster). Storing UTC lets the grid be shown in any timezone later without migrating data. Check-ins save as they are edited; there is no submit step. The first edit of a week checks the member in, and "Can't make it this week" records a response with no availability, so officers can tell "unavailable" from "hasn't answered". Browser storage uses the key `whentoraid-v3` (the key predates the state version); `storage.js` upgrades older saved state on load, one version at a time. Version 5 adds each member's Discord user ID (optional, used to @mention them in reminders), a weekly check-in deadline, and per-plan attendance (`attended`, `late`, `noshow`) plus a `cancelled` flag. Data saved by the legacy prototype is not migrated. If saved data cannot be loaded (damaged, or saved by a newer version), it is copied to `whentoraid-unreadable` before setup opens, and setup offers it for download. On load, weeks more than 12 weeks old lose their check-ins and keep only their plan (attendance history), so storage stays small. The "show my time" choice is stored per browser under `whentoraid-show-local-time`, outside the guild.
 
 ## Implemented
 
 - Dark, Warcraft-inspired guild planner with responsive layouts.
-- First-run setup: name the guild, pick its timezone and raid hours, and add yourself with a main character. A demo guild (24 sample players, week of September 28, 2026) is one click away, and Guild settings can start over.
+- First-run setup: name the guild, pick its timezone and raid hours, and add yourself with a main character. Guild settings can start over. The demo generates 24 sample players with fresh randomized availability and three raid plans for every week touching the current calendar year, opening on the current week. Past raids include sample attendance; future raids do not. Demo check-ins survive the usual history cleanup, so the whole year remains available after reload or backup restore.
+- Switch between raids in the planner or Guild settings. Each has its own name, size, role targets, duration, weekly roster, locks, and attendance. Role targets must add up to the selected raid's size. Bench fairness is per raid; member attendance records include all raids.
 - Guild members page: add, rename, and remove players (with their main character and optional Discord ID), see each player's check-in status and attendance record, and "Act as" any player to fill in their availability and characters. The sidebar has the same switcher.
 - Guild name, timezone, raid hours, and a weekly check-in deadline are editable in Guild settings. Changing hours keeps the chosen session at the same clock time.
 - Check-ins panel: who has not answered, the deadline, and "Copy reminder for Discord", which @mentions players with a saved Discord ID and shows the deadline in each reader's timezone.
@@ -144,7 +149,7 @@ Members and characters are stored once. Each week holds only check-ins (availabi
 - The availability map shows, by default, how many role slots the best roster fills at each start time and what is short ("Short 1 healer"); Tanks, Healers, Damage, and Players views count who can stay. Suggestion cards name what is missing.
 - Week navigation: previous, next, and "This week" buttons beside the date picker.
 - The bench is grouped into free for this session, can't make it, and haven't checked in. The Discord and text exports list only players who could fill in.
-- "Add to calendar" downloads an `.ics` file for the session (stable per week, so re-importing updates the event).
+- "Add to calendar" downloads an `.ics` file for the session (stable per raid and week, so different raids create separate events). Calendar, Discord, and text exports include the selected raid's name.
 - Keyboard: the availability map and grid are single Tab stops; arrow keys, Home, and End move between cells.
 - Weekly half-hour availability grid, mouse painting, click/tap, and keyboard toggling.
 - Character profiles, multiple alts, and per-week willingness to bring each character. Characters can be edited, deleted (two-click confirm; a member's last character is kept), and promoted to main.
@@ -160,7 +165,7 @@ Members and characters are stored once. Each week holds only check-ins (availabi
 - Backup: download the whole guild as JSON from Guild settings, and restore it there or from setup, in this or another browser.
 - Undo for removing a player, deleting a character, restoring a backup, loading the demo guild, and erasing the guild.
 - Tabs stay in step: a change saved in one tab replaces the guild in the others.
-- The page and week are in the URL (`#/planner/2026-10-05`), so reloads keep your place, Back works, and links can be shared.
+- The page, week, and selected raid are in the URL (`#/planner/2026-10-05/raid-10-1`), so reloads keep your place, Back works, and links can be shared. Existing links without a raid ID open the original `raid-20` profile.
 - "Show my time": viewers in another timezone can see the grid, suggestions, session, and deadline in their own time. Row labels marked +1 fall on the next day.
 - Raids can run past midnight: raid hours may end as late as 6 am the next day.
 - Installable (web app manifest and icons) and usable offline after the first visit.

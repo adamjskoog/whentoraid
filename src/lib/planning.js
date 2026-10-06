@@ -3,6 +3,7 @@ import { backups, compose, isAvailable } from './engine.js'
 import { clampStartSlot, sessionWindows, slotWindow } from './grid.js'
 import { enginePlayers, getWeek, saveSettings, setPlan } from './model.js'
 import { addDays } from './time.js'
+import { getRaid } from './raids.js'
 
 /** How many previous weeks count toward bench fairness. */
 export const BENCH_LOOKBACK_WEEKS = 4
@@ -23,15 +24,16 @@ const MINUTE_MS = 60_000
  * @returns {Map<string, number>}
  */
 export function benchHistory(state, weekIso, lookbackWeeks = BENCH_LOOKBACK_WEEKS) {
-  const durationMs = state.settings.durationSlots * SLOT_MINUTES * MINUTE_MS
+  const durationMs = getRaid(state).durationSlots * SLOT_MINUTES * MINUTE_MS
   const counts = new Map()
   for (let weeksAgo = 1; weeksAgo <= lookbackWeeks; weeksAgo++) {
     const pastWeek = addDays(weekIso, -DAYS_PER_WEEK * weeksAgo)
-    const plan = state.weeks[pastWeek]?.plan
+    const draft = getWeek(state, pastWeek).plan
+    const plan = draft?.published ?? draft
     // Nobody sat out of a raid that did not happen.
-    if (!plan || plan.cancelled) continue
+    if (!plan || draft.cancelled) continue
 
-    const window = { start: plan.start, end: plan.start + durationMs }
+    const window = { start: plan.start, end: plan.end ?? plan.start + durationMs }
     const rostered = new Set(plan.team.map((e) => e.memberId))
     for (const player of enginePlayers(state, pastWeek)) {
       const satOut =
@@ -117,8 +119,9 @@ export function plannerPlayers(state) {
 export function plannerContext(state) {
   const weekIso = state.currentWeek
   const players = plannerPlayers(state)
-  const windows = sessionWindows(weekIso, state.settings.durationSlots, state.guild)
-  const suggestions = rankSuggestions(windows, players, state.settings.targets)
+  const raid = getRaid(state)
+  const windows = sessionWindows(weekIso, raid.durationSlots, state.guild)
+  const suggestions = rankSuggestions(windows, players, raid.targets)
   const plan = resolvePlan(getWeek(state, weekIso).plan, windows, suggestions)
   return { players, windows, suggestions, plan }
 }
@@ -201,7 +204,7 @@ export function toggleLock(locked, memberId) {
  */
 function sameClockSlot(startSlot, prev, next) {
   const shift = ((prev.guild.dayStartHour - next.guild.dayStartHour) * 60) / SLOT_MINUTES
-  return clampStartSlot(startSlot + shift, next.settings.durationSlots, next.guild)
+  return clampStartSlot(startSlot + shift, getRaid(next).durationSlots, next.guild)
 }
 
 /**
@@ -215,15 +218,24 @@ function realignPlans(prev, next) {
 
   const weeks = Object.fromEntries(
     Object.entries(next.weeks).map(([weekIso, week]) => {
-      const old =
-        week.plan &&
-        sessionWindows(weekIso, prev.settings.durationSlots, prev.guild).find(
-          (w) => w.start === week.plan.start,
-        )
-      if (!old) return [weekIso, week]
-      const startSlot = sameClockSlot(old.startSlot, prev, next)
-      const { start } = slotWindow(weekIso, old.day, startSlot, next.settings.durationSlots, next.guild)
-      return [weekIso, { ...week, plan: { ...week.plan, start } }]
+      const plans = Object.fromEntries(
+        Object.entries(week.plans).map(([raidId, plan]) => {
+          const before = getRaid(prev, raidId)
+          const after = getRaid(next, raidId)
+          const old = sessionWindows(weekIso, before.durationSlots, prev.guild).find(
+            (w) => w.start === plan.start,
+          )
+          if (!old) return [raidId, plan]
+          const startSlot = sameClockSlot(
+            old.startSlot,
+            { ...prev, currentRaidId: raidId },
+            { ...next, currentRaidId: raidId },
+          )
+          const { start } = slotWindow(weekIso, old.day, startSlot, after.durationSlots, next.guild)
+          return [raidId, { ...plan, start }]
+        }),
+      )
+      return [weekIso, { ...week, plans }]
     }),
   )
   return { ...next, weeks }
@@ -244,12 +256,12 @@ export function applySettings(state, input) {
   if (saved.error) return saved
 
   const next = realignPlans(state, saved.state)
-  const { durationSlots, targets } = next.settings
+  const { durationSlots, targets } = getRaid(next)
   const startSlot = sameClockSlot(before.startSlot, state, next)
   const window = slotWindow(next.currentWeek, before.day, startSlot, durationSlots, next.guild)
 
   const sameRaid =
-    sameNumbers(targets, state.settings.targets) && durationSlots === state.settings.durationSlots
+    sameNumbers(targets, getRaid(state).targets) && durationSlots === getRaid(state).durationSlots
   const savedStart = getWeek(next, next.currentWeek).plan?.start
   if (sameRaid && before.saved && savedStart === window.start) return { state: next }
 
