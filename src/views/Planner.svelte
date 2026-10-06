@@ -11,6 +11,16 @@
   import RosterBoard from '../components/RosterBoard.svelte'
   import SuggestionCards from '../components/SuggestionCards.svelte'
   import WeekBar from '../components/WeekBar.svelte'
+  import RaidSelector from '../components/RaidSelector.svelte'
+  import WeeklyOverview from '../components/WeeklyOverview.svelte'
+  import {
+    copyPreviousRoster,
+    hasDraftChanges,
+    publishPlan,
+    withdrawPlan,
+    undoRosterChange,
+  } from '../lib/raid-workflow.js'
+  import { getRaid } from '../lib/raids.js'
   import { app } from '../lib/app.svelte.js'
   import { setAttendance, setCancelled } from '../lib/attendance.js'
   import { rosterIcs } from '../lib/calendar.js'
@@ -31,16 +41,77 @@
     topDistinctDays,
   } from '../lib/planning.js'
   import { DISCORD_MESSAGE_LIMIT, rosterDiscord, rosterText } from '../lib/roster-export.js'
-  import { showToast } from '../lib/toast.svelte.js'
+  import { showToast, offerUndo } from '../lib/toast.svelte.js'
+
+  let showPublished = $state(false)
+  let undoChange = $state(null)
+  const viewPublished = $derived(!canManage() || showPublished)
+  const published = $derived(getWeek(app.data, app.data.currentWeek).plan?.published)
 
   const context = $derived(plannerContext(app.data))
-  const plan = $derived(context.plan)
+  const plan = $derived(viewPublished && published ? { ...published, locked: [], saved: true } : context.plan)
   const players = $derived(context.players)
-  const settings = $derived(app.data.settings)
+  const settings = $derived(
+    viewPublished && published
+      ? {
+          ...getRaid(app.data),
+          name: published.raidName,
+          targets: published.targets,
+          durationSlots: (published.end - published.start) / 1800000,
+        }
+      : getRaid(app.data),
+  )
   const guild = $derived(app.data.guild)
   const weekIso = $derived(app.data.currentWeek)
   /** The saved plan carries attendance; the resolved plan above may be an unsaved suggestion. */
   const savedPlan = $derived(getWeek(app.data, weekIso).plan)
+  const draftChanged = $derived(hasDraftChanges(app.data, context.plan))
+
+  function rememberChange(previous, next) {
+    undoChange = {
+      week: weekIso,
+      raidId: app.data.currentRaidId,
+      before: $state.snapshot(getWeek(previous, weekIso).plan),
+      after: $state.snapshot(getWeek(next, weekIso).plan),
+    }
+    app.data = next
+  }
+
+  function undoRoster() {
+    if (officersOnly()) return
+    const result = undoRosterChange(app.data, undoChange)
+    if (result.error) return showToast(result.error)
+    app.data = result.state
+    undoChange = null
+    showToast('Roster change undone.')
+  }
+
+  function copyLastWeek() {
+    if (officersOnly()) return
+    const result = copyPreviousRoster(app.data)
+    if (result.error) return showToast(result.error)
+    rememberChange(app.data, result.state)
+    showToast(
+      `Last week’s roster copied as a draft. Check this week’s availability.${result.dropped ? ` ${result.dropped} entries no longer fit and were left out.` : ''}`,
+    )
+  }
+
+  function publish() {
+    if (officersOnly()) return
+    const previous = app.data
+    const result = publishPlan(app.data, context.plan, players)
+    if (result.error) return showToast(result.error)
+    app.data = result.state
+    offerUndo('Roster published. Draft edits will stay separate.', previous)
+  }
+
+  function withdraw() {
+    if (officersOnly()) return
+    const previous = app.data
+    app.data = withdrawPlan(app.data)
+    showPublished = false
+    offerUndo('Published roster withdrawn. Your draft is kept.', previous)
+  }
 
   const totalSlots = $derived(settings.targets.reduce((sum, n) => sum + n, 0))
   const roleCounts = $derived(ROLES.map((role) => plan.team.filter((e) => e.role === role).length))
@@ -73,8 +144,8 @@
 
   /** Locks carry over unless given; setPlan drops locks for anyone no longer on the team. */
   function savePlan(start, team, locked = plan.locked) {
-    if (officersOnly()) return
-    app.data = setPlan(app.data, weekIso, { start, team, locked })
+    if (officersOnly() || viewPublished) return
+    rememberChange(app.data, setPlan(app.data, weekIso, { start, team, locked }))
   }
 
   function rebuild() {
@@ -168,11 +239,11 @@
   }
 
   function exportRoster() {
-    downloadText(`whentoraid-${weekIso}.txt`, rosterText(app.data, plan, players))
+    downloadText(`whentoraid-${settings.id}-${weekIso}.txt`, rosterText(app.data, plan, players))
   }
 
   function exportCalendar() {
-    downloadText(`whentoraid-${weekIso}.ics`, rosterIcs(app.data, plan), 'text/calendar')
+    downloadText(`whentoraid-${settings.id}-${weekIso}.ics`, rosterIcs(app.data, plan), 'text/calendar')
   }
 </script>
 
@@ -183,108 +254,162 @@
 />
 
 <WeekBar />
-
-<PlannerStats
-  {checkedInCount}
-  playerCount={players.length}
-  rosterCount={plan.team.length}
-  {totalSlots}
-  {roleCounts}
-  {problemCount}
-/>
-
-<div class="workspace">
-  <div>
-    <div class="section-head">
-      <div>
-        <h2>The best windows</h2>
-        <small>
-          Ranked by role slots filled, then backups for the thinnest role, then who sat out recently, then
-          mains.
-        </small>
-      </div>
-      <button onclick={rebuild}>↻ Rebuild roster</button>
-    </div>
-
-    <SuggestionCards
-      suggestions={topDays}
-      {checkedInCount}
-      {totalSlots}
-      targets={settings.targets}
-      selectedStart={plan.start}
-      {zone}
-      onchoose={chooseSuggestion}
-    />
-
-    <div class="panel">
-      <div class="section-head">
-        <h3>Guild availability</h3>
-        <small>Every cell is a full session starting at that time</small>
-      </div>
-      <Heatmap
-        {weekIso}
-        grid={guild}
-        {players}
-        suggestions={context.suggestions}
-        targets={settings.targets}
-        selection={plan}
-        durationSlots={settings.durationSlots}
-        onselect={moveSession}
-      />
-    </div>
-
-    <div class="section-head roster-header">
-      <div>
-        <h2>Your raid roster</h2>
-        <small>{sessionLabel} · Changes save automatically</small>
-      </div>
-      <div class="buttons">
-        <button onclick={copyForDiscord}>Copy for Discord</button>
-        <button onclick={exportCalendar}>Add to calendar (.ics)</button>
-        <button onclick={exportRoster}>Download .txt ↓</button>
-      </div>
-    </div>
-
-    <RosterBoard
-      team={plan.team}
-      {players}
-      window={plan}
-      targets={settings.targets}
-      onplace={place}
-      onbench={bench}
-      onedit={(memberId) => (dialog = { kind: 'player', memberId })}
-      onadd={(role) => (dialog = { kind: 'add', role })}
-      locked={plan.locked}
-      onlock={lock}
-    />
-
-    {#if plan.team.length}
-      <AttendancePanel
-        team={plan.team}
-        attendance={savedPlan?.attendance ?? {}}
-        cancelled={savedPlan?.cancelled ?? false}
-        onmark={markAttendance}
-        oncancelled={markCancelled}
-      />
+<RaidSelector />
+<WeeklyOverview publishedOnly={viewPublished} />
+<section class="panel spaced-top" aria-label="Roster publication">
+  <div class="buttons">
+    {#if canManage()}
+      <button aria-pressed={!viewPublished} onclick={() => (showPublished = false)}>Edit draft</button>
+      <button aria-pressed={viewPublished} onclick={() => (showPublished = true)}
+        >View published roster</button
+      >
+      {#if !viewPublished}
+        <button class="primary" disabled={published && !draftChanged} onclick={publish}
+          >{published ? 'Publish draft changes' : 'Publish roster'}</button
+        >
+      {/if}
+      {#if published}<button onclick={withdraw}>Withdraw published roster</button>{/if}
     {/if}
   </div>
+  <p role="status" class="note">
+    {!published
+      ? 'No published roster for this raid yet.'
+      : draftChanged
+        ? 'Published roster is available. Draft changes have not been published.'
+        : 'The draft matches the published roster.'}
+    {viewPublished ? 'Viewing the confirmed roster.' : 'Editing the draft.'}
+  </p>
+  {#if savedPlan?.cancelled}<p class="warning">This raid is cancelled.</p>{/if}
+</section>
+{#if app.data.demoYear}
+  <p class="note">
+    Demo guild · Randomized availability and raid plans for all of {app.data.demoYear}. Load the demo again
+    for a fresh year of sample data.
+  </p>
+{/if}
 
-  <div>
-    <CheckinPanel oncopy={copyText} />
+{#if !viewPublished || published}
+  <PlannerStats
+    {checkedInCount}
+    playerCount={players.length}
+    rosterCount={plan.team.length}
+    {totalSlots}
+    {roleCounts}
+    {problemCount}
+  />
 
-    <ReadinessPanel
-      {sessionLabel}
-      {roleCounts}
-      targets={settings.targets}
-      {availableCount}
-      backupsLabel={formatBackups(planBackups)}
-      backupsOk={planThinnest > 0}
-      lockedCount={plan.locked.length}
-      {problemCount}
-      {classCount}
-    />
+  <div class="workspace">
+    <div>
+      {#if !viewPublished}
+        <div class="section-head">
+          <div>
+            <h2>The best windows</h2>
+            <small>
+              Ranked by role slots filled, then backups for the thinnest role, then who sat out recently, then
+              mains.
+            </small>
+          </div>
+          <button onclick={rebuild}>↻ Rebuild roster</button>
+        </div>
+        <div class="buttons spaced-top">
+          <button onclick={copyLastWeek}>Copy last week’s roster</button>
+          <button
+            disabled={!undoChange ||
+              undoChange.week !== weekIso ||
+              undoChange.raidId !== app.data.currentRaidId}
+            onclick={undoRoster}>Undo roster change</button
+          >
+        </div>
+
+        <SuggestionCards
+          suggestions={topDays}
+          {checkedInCount}
+          {totalSlots}
+          targets={settings.targets}
+          selectedStart={plan.start}
+          {zone}
+          onchoose={chooseSuggestion}
+        />
+
+        <div class="panel">
+          <div class="section-head">
+            <h3>Guild availability</h3>
+            <small>Every cell is a full session starting at that time</small>
+          </div>
+          <Heatmap
+            {weekIso}
+            grid={guild}
+            {players}
+            suggestions={context.suggestions}
+            targets={settings.targets}
+            selection={plan}
+            durationSlots={settings.durationSlots}
+            onselect={moveSession}
+          />
+        </div>
+      {/if}
+
+      <div class="section-head roster-header">
+        <div>
+          <h2>Your raid roster</h2>
+          <p class="note">{settings.name}</p>
+          <small
+            >{sessionLabel} · {viewPublished
+              ? 'Published roster'
+              : 'Draft · changes save automatically'}</small
+          >
+          {#if !viewPublished}<small>Open a player’s ⋯ menu for eligibility and recent bench priority.</small
+            >{/if}
+        </div>
+        <div class="buttons">
+          <button onclick={copyForDiscord}>Copy for Discord</button>
+          <button onclick={exportCalendar}>Add to calendar (.ics)</button>
+          <button onclick={exportRoster}>Download .txt ↓</button>
+        </div>
+      </div>
+
+      <RosterBoard
+        team={plan.team}
+        {players}
+        window={plan}
+        targets={settings.targets}
+        onplace={place}
+        onbench={bench}
+        onedit={(memberId) => (dialog = { kind: 'player', memberId })}
+        onadd={(role) => (dialog = { kind: 'add', role })}
+        locked={plan.locked}
+        onlock={lock}
+        readonly={viewPublished}
+      />
+
+      {#if plan.team.length && !viewPublished}
+        <AttendancePanel
+          team={plan.team}
+          attendance={savedPlan?.attendance ?? {}}
+          cancelled={savedPlan?.cancelled ?? false}
+          onmark={markAttendance}
+          oncancelled={markCancelled}
+        />
+      {/if}
+    </div>
+
+    <div>
+      <CheckinPanel oncopy={copyText} />
+
+      <ReadinessPanel
+        {sessionLabel}
+        {roleCounts}
+        targets={settings.targets}
+        {availableCount}
+        backupsLabel={formatBackups(planBackups)}
+        backupsOk={planThinnest > 0}
+        lockedCount={plan.locked.length}
+        {problemCount}
+        {classCount}
+      />
+    </div>
   </div>
-</div>
+{/if}
 
 <AddPlayerDialog
   open={dialog?.kind === 'add'}
@@ -295,6 +420,8 @@
 />
 
 <PlayerDialog
+  {plan}
+  {players}
   open={dialog?.kind === 'player'}
   memberId={dialog?.kind === 'player' ? dialog.memberId : null}
   inTeam={dialog?.kind === 'player' && plan.team.some((e) => e.memberId === dialog.memberId)}

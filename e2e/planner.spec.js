@@ -1,18 +1,31 @@
 import { expect, test } from '@playwright/test'
+import { createSeedState } from '../src/lib/seed.js'
 
 test.beforeEach(async ({ page }) => {
+  // A stable fixture keeps roster assertions independent from the randomized demo.
+  await page.addInitScript(
+    (state) => localStorage.setItem('whentoraid-v3', JSON.stringify(state)),
+    createSeedState(),
+  )
   await page.goto('./')
-  await page.getByRole('button', { name: 'Explore the demo guild' }).click()
   await expect(page.getByRole('heading', { name: 'Find your next raid night.' })).toBeVisible()
 })
+
+/** Bench and attendance start collapsed on phones; open the one a test needs. */
+async function expand(page, title) {
+  const section = page.locator('details').filter({ has: page.locator('summary', { hasText: title }) })
+  if (!(await section.evaluate((el) => el.open))) await section.locator('summary').click()
+}
 
 test('the demo week suggests a full raid and groups the bench', async ({ page }) => {
   const top = page.getByRole('button', { name: /TOP SUGGESTION/ })
   await expect(top).toContainText('20 / 20 roles filled')
+  await expand(page, 'On the bench')
   await expect(page.getByRole('heading', { name: /Free for this session/ })).toBeVisible()
 })
 
 test('record attendance after the raid', async ({ page }) => {
+  await expand(page, 'After the raid')
   const group = page.getByRole('group', { name: 'Attendance for Stoneguard' })
   await group.getByRole('button', { name: 'Late' }).click()
   await expect(group.getByRole('button', { name: 'Late' })).toHaveAttribute('aria-pressed', 'true')
@@ -38,7 +51,7 @@ test('download the raid as a calendar file', async ({ page }) => {
     page.waitForEvent('download'),
     page.getByRole('button', { name: 'Add to calendar (.ics)' }).click(),
   ])
-  expect(download.suggestedFilename()).toBe('whentoraid-2026-09-28.ics')
+  expect(download.suggestedFilename()).toBe('whentoraid-raid-20-2026-09-28.ics')
 })
 
 test('the availability map can be driven from the keyboard', async ({ page, isMobile }) => {

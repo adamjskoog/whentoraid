@@ -1,4 +1,5 @@
 import { STATE_VERSION } from '../model.js'
+import { DEFAULT_RAID_ID, defaultRaids } from '../raids.js'
 
 /**
  * The app keeps one immutable AppState. Online, the same data lives in five tables. These pure
@@ -12,15 +13,16 @@ import { STATE_VERSION } from '../model.js'
  */
 
 /** Tables in foreign-key order: parents first. Deletes run in the reverse order. */
-export const TABLES = ['guilds', 'members', 'characters', 'checkins', 'plans']
+export const TABLES = ['guilds', 'members', 'characters', 'availability_templates', 'checkins', 'plans']
 
 /** Each table's primary key within a guild. */
 export const KEY_COLUMNS = {
   guilds: ['id'],
   members: ['guild_id', 'id'],
   characters: ['guild_id', 'id'],
+  availability_templates: ['guild_id', 'member_id'],
   checkins: ['guild_id', 'week', 'member_id'],
-  plans: ['guild_id', 'week'],
+  plans: ['guild_id', 'week', 'raid_id'],
 }
 
 /** @param {AppState} state @returns {Rows} */
@@ -36,9 +38,9 @@ export function stateToRows(state, guildId) {
         day_start_hour: guild.dayStartHour,
         slots_per_day: guild.slotsPerDay,
         settings: {
-          targets: settings.targets,
-          durationSlots: settings.durationSlots,
+          raids: settings.raids,
           checkinDeadline: settings.checkinDeadline ?? null,
+          ...(state.demoYear ? { demoYear: state.demoYear } : {}),
         },
         discord_server_id: guild.discordServerId ?? '',
         officer_role_ids: guild.officerRoleIds ?? '',
@@ -64,6 +66,11 @@ export function stateToRows(state, guildId) {
       main: c.main,
       position,
     })),
+    availability_templates: Object.entries(state.templates ?? {}).map(([memberId, template]) => ({
+      guild_id: guildId,
+      member_id: memberId,
+      template,
+    })),
     checkins: weeks.flatMap(([week, { checkins }]) =>
       Object.entries(checkins).map(([memberId, checkin]) => ({
         guild_id: guildId,
@@ -72,19 +79,22 @@ export function stateToRows(state, guildId) {
         checked_in: checkin.checkedIn,
         ranges: checkin.ranges,
         declined: checkin.declined,
+        raid_preferences: checkin.raids ?? {},
       })),
     ),
-    plans: weeks
-      .filter(([, week]) => week.plan)
-      .map(([week, { plan }]) => ({
+    plans: weeks.flatMap(([week, data]) =>
+      Object.entries(data.plans).map(([raidId, plan]) => ({
         guild_id: guildId,
         week,
+        raid_id: raidId,
         start: plan.start,
         team: plan.team,
         locked: plan.locked ?? [],
         attendance: plan.attendance ?? {},
         cancelled: Boolean(plan.cancelled),
+        published: plan.published ?? null,
       })),
+    ),
   }
 }
 
@@ -98,21 +108,23 @@ const byPosition = (a, b) => a.position - b.position
 export function rowsToState(rows, viewer) {
   const [guild] = rows.guilds
   const weeks = {}
-  const weekOf = (week) => (weeks[week] ??= { checkins: {}, plan: null })
+  const weekOf = (week) => (weeks[week] ??= { checkins: {}, plans: {} })
   for (const row of rows.checkins) {
     weekOf(row.week).checkins[row.member_id] = {
       checkedIn: row.checked_in,
       ranges: row.ranges,
       declined: row.declined,
+      ...(Object.keys(row.raid_preferences ?? {}).length ? { raids: row.raid_preferences } : {}),
     }
   }
   for (const row of rows.plans) {
-    weekOf(row.week).plan = {
+    weekOf(row.week).plans[row.raid_id ?? DEFAULT_RAID_ID] = {
       start: Number(row.start),
       team: row.team,
       locked: row.locked,
       attendance: row.attendance,
       cancelled: row.cancelled,
+      published: row.published ?? null,
     }
   }
   const members = [...rows.members].sort(byPosition).map((m) => ({
@@ -122,9 +134,14 @@ export function rowsToState(rows, viewer) {
     officer: m.is_officer,
   }))
   const known = members.some((m) => m.id === viewer.currentMemberId)
+  const raids = guild.settings.raids ?? defaultRaids(guild.settings.targets, guild.settings.durationSlots)
   return {
     version: STATE_VERSION,
     currentWeek: viewer.currentWeek,
+    currentRaidId: raids.some((raid) => raid.id === viewer.currentRaidId)
+      ? viewer.currentRaidId
+      : (raids.find((raid) => raid.id === DEFAULT_RAID_ID) ?? raids[0]).id,
+    ...(guild.settings.demoYear ? { demoYear: guild.settings.demoYear } : {}),
     currentMemberId: known ? viewer.currentMemberId : (members[0]?.id ?? ''),
     guild: {
       name: guild.name,
@@ -135,11 +152,13 @@ export function rowsToState(rows, viewer) {
       officerRoleIds: guild.officer_role_ids,
     },
     settings: {
-      targets: guild.settings.targets,
-      durationSlots: guild.settings.durationSlots,
+      raids,
       checkinDeadline: guild.settings.checkinDeadline ?? null,
     },
     members,
+    templates: Object.fromEntries(
+      (rows.availability_templates ?? []).map((row) => [row.member_id, row.template]),
+    ),
     characters: [...rows.characters].sort(byPosition).map((c) => ({
       id: c.id,
       memberId: c.member_id,
@@ -184,10 +203,10 @@ export function diffRows(before, after) {
   const writes = []
   const deletes = []
   for (const table of TABLES) {
-    const old = new Map(before[table].map((row) => [keyOf(table, row), stableJson(row)]))
-    const changed = after[table].filter((row) => old.get(keyOf(table, row)) !== stableJson(row))
-    const kept = new Set(after[table].map((row) => keyOf(table, row)))
-    const removed = before[table].filter((row) => !kept.has(keyOf(table, row)))
+    const old = new Map((before[table] ?? []).map((row) => [keyOf(table, row), stableJson(row)]))
+    const changed = (after[table] ?? []).filter((row) => old.get(keyOf(table, row)) !== stableJson(row))
+    const kept = new Set((after[table] ?? []).map((row) => keyOf(table, row)))
+    const removed = (before[table] ?? []).filter((row) => !kept.has(keyOf(table, row)))
     if (changed.length) writes.push({ table, kind: table === 'guilds' ? 'update' : 'upsert', rows: changed })
     if (removed.length) {
       deletes.unshift({ table, kind: 'delete', keys: removed.map((row) => pick(row, KEY_COLUMNS[table])) })

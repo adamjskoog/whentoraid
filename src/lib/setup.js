@@ -2,6 +2,7 @@ import { DEFAULT_CHECKIN_DEADLINE, gridFromHours, validateGuild } from './guild.
 import { addMember } from './members.js'
 import { STATE_VERSION } from './model.js'
 import { mondayOf, todayIso } from './time.js'
+import { DEFAULT_RAID_ID, defaultRaids } from './raids.js'
 
 /** Starting raid shape for a new guild: 2 tanks, 4 healers, 14 damage, 3 hours. Officers can change it. */
 export const DEFAULT_TARGETS = [2, 4, 14]
@@ -30,6 +31,7 @@ export function createGuildState(input, { now = Date.now(), makeId } = {}) {
     version: STATE_VERSION,
     currentWeek: mondayOf(todayIso(timezone, now)),
     currentMemberId: '',
+    currentRaidId: DEFAULT_RAID_ID,
     guild: {
       name: guildName.trim(),
       timezone,
@@ -38,11 +40,11 @@ export function createGuildState(input, { now = Date.now(), makeId } = {}) {
       officerRoleIds: '',
     },
     settings: {
-      targets: [...DEFAULT_TARGETS],
-      durationSlots: DEFAULT_DURATION_SLOTS,
+      raids: defaultRaids(),
       checkinDeadline: { ...DEFAULT_CHECKIN_DEADLINE },
     },
     members: [],
+    templates: {},
     characters: [],
     weeks: {},
   }

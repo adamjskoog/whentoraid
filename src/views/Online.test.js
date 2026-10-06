@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte'
+import { render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import App from '../App.svelte'
 import { app } from '../lib/app.svelte.js'
@@ -19,11 +19,12 @@ describe('online guild, as a player', () => {
     Object.assign(remote, { guildId: null, memberId: null, officer: false })
   })
 
-  test('the roster cannot be changed', async () => {
+  test('players see only the published roster, without editing controls', () => {
     const before = app.data
     render(App)
-    await fireEvent.click(screen.getByRole('button', { name: /Rebuild roster/ }))
-    expect(screen.getByText('Only officers can change the roster.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Rebuild roster/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Publish/ })).toBeNull()
+    expect(screen.getByText(/Viewing the confirmed roster/)).toBeTruthy()
     expect(app.data).toBe(before)
   })
 

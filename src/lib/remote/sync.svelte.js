@@ -199,7 +199,7 @@ export async function createOnlineGuild(state) {
       timezone: state.guild.timezone,
       dayStartHour: state.guild.dayStartHour,
       slotsPerDay: state.guild.slotsPerDay,
-      settings: state.settings,
+      settings: { ...state.settings, ...(state.demoYear ? { demoYear: state.demoYear } : {}) },
       discordServerId: state.guild.discordServerId,
       officerRoleIds: state.guild.officerRoleIds,
     },
@@ -302,7 +302,9 @@ async function reload() {
   const { currentWeek, currentMemberId } = app.data
   let state
   try {
-    state = withViewer(rowsToState(rows, { currentWeek, currentMemberId }))
+    state = withViewer(
+      rowsToState(rows, { currentWeek, currentMemberId, currentRaidId: app.data?.currentRaidId }),
+    )
   } catch {
     remote.status = 'error'
     showToast('The guild’s saved data could not be read. Reload the page to try again.')

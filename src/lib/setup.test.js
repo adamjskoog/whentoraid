@@ -8,7 +8,7 @@ import {
   validateDeadline,
   validateGuild,
 } from './guild.js'
-import { saveSettings, setPlan, getWeek } from './model.js'
+import { STATE_VERSION, saveSettings, setPlan, getWeek } from './model.js'
 import { applySettings, plannerContext } from './planning.js'
 import { createSeedState, SEED_WEEK } from './seed.js'
 import { createGuildState } from './setup.js'
@@ -147,7 +147,7 @@ describe('createGuildState', () => {
     const result = createGuildState(SETUP, { now, makeId: () => `id${n++}` })
     expect(result.error).toBeUndefined()
     const { state } = result
-    expect(state.version).toBe(5)
+    expect(state.version).toBe(STATE_VERSION)
     expect(state.currentWeek).toBe('2026-09-28')
     expect(state.guild).toMatchObject({
       name: 'Night Shift',

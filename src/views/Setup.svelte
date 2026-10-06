@@ -5,7 +5,7 @@
   import { app } from '../lib/app.svelte.js'
   import { END_HOUR_OPTIONS, readCharacterFields, START_HOUR_OPTIONS } from '../lib/forms.js'
   import { timeZoneOptions } from '../lib/guild.js'
-  import { createSeedState } from '../lib/seed.js'
+  import { createDemoState } from '../lib/seed.js'
   import { createOnlineGuild, remote } from '../lib/remote/sync.svelte.js'
   import { createGuildState } from '../lib/setup.js'
   import { downloadText } from '../lib/download.js'
@@ -56,7 +56,7 @@
 
   function loadDemo() {
     app.view = 'planner'
-    app.data = createSeedState()
+    app.data = createDemoState()
   }
 
   function restore(state) {
@@ -105,6 +105,10 @@
 
     <form class="panel spaced-top" onsubmit={create}>
       <h2>Your guild</h2>
+      <p>
+        Starts with two 10-player raids and one 20-player raid. Rename them and tune each composition in Guild
+        settings.
+      </p>
       <div class="settings-grid">
         <label class="field">Guild name<input name="guildName" required maxlength="60" /></label>
         <label class="field">
@@ -155,7 +159,10 @@
 
     <section class="panel spaced-top">
       <h2>Just looking?</h2>
-      <p>Explore a sample guild of 24 players with a week of availability already filled in.</p>
+      <p>
+        Explore 24 sample players with a full calendar year of randomized availability and plans for all three
+        raids. Every load creates a fresh demo.
+      </p>
       <button onclick={loadDemo}>Explore the demo guild</button>
     </section>
 

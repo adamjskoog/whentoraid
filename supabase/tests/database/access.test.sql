@@ -32,7 +32,7 @@ grant select, insert on g, other_guild to authenticated, anon;
 select pg_temp.act_as('00000000-0000-0000-0000-00000000000a');
 insert into g select public.create_guild(
   '{"name": "Night Shift", "timezone": "America/New_York", "dayStartHour": 18, "slotsPerDay": 12,
-    "settings": {"targets": [2, 4, 14], "durationSlots": 6, "checkinDeadline": null}}',
+    "settings": {"raids": [{"id": "raid-20", "name": "20-player Raid", "size": 20, "targets": [2, 4, 14], "durationSlots": 6}], "checkinDeadline": null}}',
   '{"id": "m-officer", "name": "Sam"}'
 );
 
@@ -120,7 +120,7 @@ $$, '23514', null, 'check-ins years ahead are refused');
 select pg_temp.act_as('00000000-0000-0000-0000-00000000000c');
 insert into other_guild select public.create_guild(
   '{"name": "Other Guild", "timezone": "Europe/London", "dayStartHour": 18, "slotsPerDay": 12,
-    "settings": {"targets": [2, 4, 14], "durationSlots": 6, "checkinDeadline": null}}',
+    "settings": {"raids": [{"id": "raid-20", "name": "20-player Raid", "size": 20, "targets": [2, 4, 14], "durationSlots": 6}], "checkinDeadline": null}}',
   '{"id": "m-other", "name": "Kai"}'
 );
 

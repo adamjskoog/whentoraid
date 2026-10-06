@@ -1,6 +1,7 @@
 <script>
   import { app } from './lib/app.svelte.js'
   import { setCurrentWeek } from './lib/model.js'
+  import { DEFAULT_RAID_ID, setCurrentRaid } from './lib/raids.js'
   import { formatHash, parseHash } from './lib/route.js'
   import { initRemote, pushChanges, remote } from './lib/remote/sync.svelte.js'
   import { sameGuild, saveState, watchOtherTabs } from './lib/storage.js'
@@ -53,7 +54,16 @@
     watchOtherTabs(
       (state) => {
         if (remote.guildId || sameGuild(state, app.data)) return
-        app.data = state && app.data ? { ...state, currentWeek: app.data.currentWeek } : state
+        app.data =
+          state && app.data
+            ? {
+                ...state,
+                currentWeek: app.data.currentWeek,
+                currentRaidId: state.settings.raids.some((raid) => raid.id === app.data.currentRaidId)
+                  ? app.data.currentRaidId
+                  : state.currentRaidId,
+              }
+            : state
         if (state) showToast('Updated with changes from another tab.')
       },
       () => {
@@ -69,7 +79,7 @@
   let lastView = app.view
   $effect(() => {
     if (!app.data) return
-    const hash = formatHash(app.view, app.data.currentWeek)
+    const hash = formatHash(app.view, app.data.currentWeek, app.data.currentRaidId)
     if (location.hash === hash) return
     const url = `${location.pathname}${location.search}${hash}`
     if (app.view === lastView) history.replaceState(null, '', url)
@@ -82,6 +92,7 @@
     lastView = route.view
     app.view = route.view
     if (app.data && route.week) app.data = setCurrentWeek(app.data, route.week)
+    if (app.data) app.data = setCurrentRaid(app.data, route.raid ?? DEFAULT_RAID_ID)
   }
 </script>
 

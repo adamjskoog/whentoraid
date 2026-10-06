@@ -2,12 +2,14 @@ import { pruneOldWeeks, setCurrentWeek } from './model.js'
 import { parseHash } from './route.js'
 import { loadSaved } from './storage.js'
 import { mondayOf, todayIso } from './time.js'
+import { setCurrentRaid, DEFAULT_RAID_ID } from './raids.js'
 
 /** The saved guild with stale check-ins pruned, moved to the week named in the URL, if any. */
 function initialData(saved, route) {
   if (!saved) return null
   const pruned = pruneOldWeeks(saved, mondayOf(todayIso(saved.guild.timezone)))
-  return route.week ? setCurrentWeek(pruned, route.week) : pruned
+  const selected = setCurrentRaid(pruned, route.raid ?? (route.week ? DEFAULT_RAID_ID : pruned.currentRaidId))
+  return route.week ? setCurrentWeek(selected, route.week) : selected
 }
 
 const saved = loadSaved()

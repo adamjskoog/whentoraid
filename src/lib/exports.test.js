@@ -22,7 +22,7 @@ describe('calendar export', () => {
     expect(ics).toMatch(/\r\nSEQUENCE:\d+\r\n/)
     expect(ics).toContain(`DTSTART:${icsTime(plan.start)}`)
     expect(ics).toContain(`DTEND:${icsTime(plan.end)}`)
-    expect(ics).toContain('SUMMARY:The After Hours raid')
+    expect(ics).toContain('SUMMARY:The After Hours — 20-player Raid')
     expect(ics.split('\r\n').every((line) => line.length <= 75)).toBe(true)
     // Unfolding restores the roster description.
     expect(ics.replace(/\r\n /g, '')).toContain('Tanks: Stoneguard')
@@ -39,7 +39,7 @@ describe('calendar folding with non-ASCII text', () => {
     for (const line of ics.split('\r\n')) expect(encoder.encode(line).length).toBeLessThanOrEqual(75)
     // A split surrogate pair would turn into U+FFFD once encoded as UTF-8.
     expect(new TextDecoder().decode(encoder.encode(ics))).not.toContain('�')
-    expect(ics.replace(/\r\n /g, '')).toContain(`SUMMARY:${state.guild.name} raid`)
+    expect(ics.replace(/\r\n /g, '')).toContain(`SUMMARY:${state.guild.name} — 20-player Raid`)
   })
 })
 

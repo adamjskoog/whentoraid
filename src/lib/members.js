@@ -73,17 +73,24 @@ export function removeMember(state, memberId) {
   if (state.members.length === 1) return { state, error: 'A guild needs at least one player.' }
 
   const members = state.members.filter((m) => m.id !== memberId)
+  const { [memberId]: _template, ...templates } = state.templates ?? {}
   const weeks = Object.fromEntries(
     Object.entries(state.weeks).map(([weekIso, week]) => {
       const { [memberId]: _removed, ...checkins } = week.checkins
-      const plan = week.plan && planWithout(week.plan, (e) => e.memberId === memberId)
-      return [weekIso, { ...week, checkins, plan }]
+      const plans = Object.fromEntries(
+        Object.entries(week.plans).map(([id, plan]) => [
+          id,
+          planWithout(plan, (e) => e.memberId === memberId),
+        ]),
+      )
+      return [weekIso, { ...week, checkins, plans }]
     }),
   )
   return {
     state: {
       ...state,
       members,
+      templates,
       characters: state.characters.filter((c) => c.memberId !== memberId),
       weeks,
       currentMemberId: state.currentMemberId === memberId ? members[0].id : state.currentMemberId,

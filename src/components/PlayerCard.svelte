@@ -10,7 +10,17 @@
    * `onmove(target)` handles a touch drop; target is a role name or "bench".
    * `onlock` is given only for rostered cards; locked players stay put when the roster is rebuilt.
    */
-  let { entry, players, window, bench = false, onedit, onmove, locked = false, onlock } = $props()
+  let {
+    entry,
+    players,
+    window,
+    bench = false,
+    onedit,
+    onmove,
+    locked = false,
+    onlock,
+    readonly = false,
+  } = $props()
 
   const member = $derived(memberById(app.data, entry.memberId))
   const character = $derived(characterById(app.data, entry.characterId))
@@ -31,9 +41,9 @@
     class:conflict={problems.length > 0}
     class:locked
     role="listitem"
-    draggable="true"
+    draggable={!readonly}
     ondragstart={startDrag}
-    use:touchDrag={{ ondrop: onmove }}
+    use:touchDrag={{ ondrop: readonly ? () => {} : onmove }}
     style:--class={CLASS_COLORS[character.class] ?? '#aaa'}
   >
     <span class="mini" aria-hidden="true">{ROLE_ICONS[character.role]}</span>
@@ -47,7 +57,7 @@
         <span class="warning">⚠ {problem}</span>
       {/each}
     </div>
-    {#if onlock}
+    {#if onlock && !readonly}
       <button
         class="lock"
         aria-pressed={locked}
@@ -56,8 +66,10 @@
         onclick={onlock}>{locked ? '🔒' : '🔓'}</button
       >
     {/if}
-    <button class="edit" aria-label="{bench ? 'Add' : 'Edit'} {character.name}" onclick={onedit}>
-      {bench ? '+' : '⋯'}
-    </button>
+    {#if !readonly}
+      <button class="edit" aria-label="{bench ? 'Add' : 'Edit'} {character.name}" onclick={onedit}>
+        {bench ? '+' : '⋯'}
+      </button>
+    {/if}
   </div>
 {/if}

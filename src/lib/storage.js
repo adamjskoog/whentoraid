@@ -1,6 +1,7 @@
 import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
 import { STATE_VERSION } from './model.js'
 import { isIsoDate, isValidTimeZone } from './time.js'
+import { DEFAULT_RAID_ID, defaultRaids, validateRaid } from './raids.js'
 
 const STORAGE_KEY = 'whentoraid-v3'
 /** Where unreadable saved data is kept, so a fresh setup cannot overwrite it. */
@@ -35,7 +36,31 @@ function migrateV4(state) {
   }
 }
 
-const MIGRATIONS = { 3: migrateV3, 4: migrateV4 }
+/** Existing rosters and composition become the 20-player raid; the two 10-player raids start empty. */
+export function migrateV5(state) {
+  const { targets, durationSlots, ...settings } = state.settings
+  return {
+    ...state,
+    version: 6,
+    currentRaidId: DEFAULT_RAID_ID,
+    settings: { ...settings, raids: defaultRaids(targets, durationSlots) },
+    weeks: Object.fromEntries(
+      Object.entries(state.weeks).map(([iso, { plan, ...week }]) => [
+        iso,
+        {
+          ...week,
+          plans: plan ? { [DEFAULT_RAID_ID]: plan } : {},
+        },
+      ]),
+    ),
+  }
+}
+
+function migrateV6(state) {
+  return { ...state, version: 7, templates: {} }
+}
+
+const MIGRATIONS = { 3: migrateV3, 4: migrateV4, 5: migrateV5, 6: migrateV6 }
 
 /** Bring older saved state up to the current version, one step at a time. Unknown versions pass through. */
 export function migrateState(value) {
@@ -57,7 +82,19 @@ function isValidState(value) {
     typeof value.weeks === 'object' &&
     typeof value.guild === 'object' &&
     isValidTimeZone(value.guild?.timezone) &&
-    typeof value.settings === 'object'
+    typeof value.settings === 'object' &&
+    Array.isArray(value.settings?.raids) &&
+    value.settings.raids.length > 0 &&
+    value.settings.raids.length <= 10 &&
+    value.settings.raids.every(
+      (r) => typeof r?.id === 'string' && /^[a-z0-9-]{1,64}$/.test(r.id) && !validateRaid(r),
+    ) &&
+    new Set(value.settings.raids.map((r) => r.id)).size === value.settings.raids.length &&
+    value.settings.raids.some((r) => r.id === value.currentRaidId) &&
+    value.weeks !== null &&
+    Object.values(value.weeks).every(
+      (week) => week?.checkins && week?.plans && typeof week.plans === 'object',
+    )
   )
 }
 
@@ -140,7 +177,10 @@ export function clearState() {
 /** Whether two guilds differ in anything besides the week each viewer is looking at. */
 export function sameGuild(a, b) {
   if (!a || !b) return a === b
-  return JSON.stringify({ ...a, currentWeek: '' }) === JSON.stringify({ ...b, currentWeek: '' })
+  return (
+    JSON.stringify({ ...a, currentWeek: '', currentRaidId: '' }) ===
+    JSON.stringify({ ...b, currentWeek: '', currentRaidId: '' })
+  )
 }
 
 /**
