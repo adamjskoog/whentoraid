@@ -1,7 +1,7 @@
 <script>
   import { app } from '../lib/app.svelte.js'
   import { readCharacterFields } from '../lib/forms.js'
-  import { deleteCharacter, saveCharacter } from '../lib/model.js'
+  import { retireCharacter, saveCharacter } from '../lib/model.js'
   import { offerUndo, showToast } from '../lib/toast.svelte.js'
   import CharacterFields from './CharacterFields.svelte'
   import Modal from './Modal.svelte'
@@ -20,10 +20,10 @@
       confirmingDelete = true
       return
     }
-    // Read the name first: once deleted, the `character` prop becomes null.
+    // Read the name first: the dialog closes once the character is retired.
     const { id, name } = character
     const previous = app.data
-    const result = deleteCharacter(app.data, app.data.currentMemberId, id)
+    const result = retireCharacter(app.data, app.data.currentMemberId, id)
     if (result.error) {
       showToast(result.error)
       confirmingDelete = false

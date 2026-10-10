@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { markUnavailable, setPlan } from '../model.js'
+import { markUnavailable, retireCharacter, setPlan } from '../model.js'
 import { removeMember } from '../members.js'
 import { createSeedState, SEED_WEEK } from '../seed.js'
 import { diffRows, recentRows, rowsToState, stableJson, stateToRows } from './rows.js'
@@ -85,6 +85,29 @@ describe('diffRows', () => {
     expect(ops.find((op) => op.table === 'members' && op.kind === 'delete').keys).toEqual([
       { guild_id: GUILD, id: memberId },
     ])
+  })
+
+  test('retiring a rostered character writes only its player’s own rows', () => {
+    // Players may write only their own characters, never plans, so anything more would be refused.
+    const team = [
+      { memberId: 'm1', characterId: 'c1a', role: 'Tank' },
+      { memberId: 'm0', characterId: 'c0a', role: 'Tank' },
+    ]
+    const planned = setPlan(before, SEED_WEEK, { start: 0, team, locked: ['m0'] })
+    const after = retireCharacter(planned, 'm0', 'c0a').state
+    const ops = diffRows(stateToRows(planned, GUILD), stateToRows(after, GUILD))
+    expect(ops).toHaveLength(1)
+    expect(ops[0]).toMatchObject({ table: 'characters', kind: 'upsert' })
+    expect(ops[0].rows.map((r) => [r.id, r.member_id, r.main, r.retired])).toEqual([
+      ['c0a', 'm0', false, true],
+      ['c0b', 'm0', true, false],
+    ])
+  })
+
+  test('round-trips a retired character', () => {
+    const retired = retireCharacter(before, 'm0', 'c0b').state
+    const reloaded = rowsToState(stateToRows(retired, GUILD), retired)
+    expect(reloaded.characters).toEqual(retired.characters)
   })
 
   test('adds a plan', () => {

@@ -1,7 +1,13 @@
 import { beforeAll, describe, expect, test } from 'vitest'
 import { applyOps, createGuild, fetchGuild, listGuilds, myDiscordId } from '../src/lib/remote/api.js'
 import { diffRows, rowsToState, stateToRows } from '../src/lib/remote/rows.js'
-import { markUnavailable, setSlotAvailable } from '../src/lib/model.js'
+import {
+  markUnavailable,
+  retireCharacter,
+  saveCharacter,
+  setPlan,
+  setSlotAvailable,
+} from '../src/lib/model.js'
 import { createSeedState, SEED_WEEK } from '../src/lib/seed.js'
 import { addDays, daysBetween, mondayOf, todayIso } from '../src/lib/time.js'
 import { discordId, signedInPlayer } from './setup.js'
@@ -97,6 +103,25 @@ describe('online guilds against a local Supabase', () => {
     await expect(applyOps(player, diffRows(shadow, stateToRows(meddling, guildId)))).rejects.toThrow(
       /permission/,
     )
+  })
+
+  test('a player deletes their own character even when it is on a roster', async () => {
+    // Regression: deleting rewrote rosters (officer-only) and shifted other players' characters.
+    const mine = state.members[1].id
+    const alt = { name: 'Emberfall', realm: 'Whitemane', class: 'Priest', spec: 'Holy', role: 'Healer' }
+    const withAlt = saveCharacter(state, mine, alt, () => 'c-integration-alt').state
+    await applyOps(player, diffRows(stateToRows(state, guildId), stateToRows(withAlt, guildId)))
+    const team = [{ memberId: mine, characterId: 'c-integration-alt', role: 'Healer' }]
+    const rostered = setPlan(withAlt, THIS_WEEK, { start: 1e12, team, locked: [mine] })
+    await applyOps(officer, diffRows(stateToRows(withAlt, guildId), stateToRows(rostered, guildId)))
+
+    const retired = retireCharacter(rostered, mine, 'c-integration-alt').state
+    await applyOps(player, diffRows(stateToRows(rostered, guildId), stateToRows(retired, guildId)))
+
+    const reloaded = rowsToState(await fetchGuild(player, guildId, SINCE), state)
+    expect(reloaded.characters).toEqual(retired.characters)
+    expect(reloaded.weeks[THIS_WEEK].plans).toEqual(rostered.weeks[THIS_WEEK].plans)
+    state = retired
   })
 
   test('a player cannot rename the guild', async () => {
