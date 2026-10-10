@@ -14,7 +14,8 @@ import { templateFromRanges, templateRanges } from './availability-template.js'
  * @typedef {{ id: string, name: string, discordId: string, officer?: boolean }} Member
  *   `discordId` is the member's Discord user ID ('' when unknown), used to mention them in reminders
  *   and, online, to let them sign in. `officer` matters only for online guilds.
- * @typedef {{ id: string, memberId: string, name: string, class: string, spec: string, role: string, realm: string, main: boolean }} Character
+ * @typedef {{ id: string, memberId: string, name: string, class: string, spec: string, role: string, realm: string, main: boolean, retired?: boolean }} Character
+ *   `retired` characters were deleted by their player: hidden everywhere except past and current rosters.
  * @typedef {{ checkedIn: boolean, ranges: Interval[], declined: string[] }} Checkin
  *   `checkedIn` means the member responded for the week, even if the answer is "not available".
  * @typedef {'attended' | 'late' | 'noshow'} Attendance
@@ -71,8 +72,9 @@ export function characterById(state, characterId) {
   return state.characters.find((c) => c.id === characterId)
 }
 
+/** The member's active characters. Retired ones stay in `state.characters` so rosters keep their names. */
 export function charactersOf(state, memberId) {
-  return state.characters.filter((c) => c.memberId === memberId)
+  return state.characters.filter((c) => c.memberId === memberId && !c.retired)
 }
 
 export function isOffered(checkin, characterId, raidId) {
@@ -277,7 +279,7 @@ export function saveCharacter(state, memberId, input, makeId = () => crypto.rand
   const { value, error } = validateCharacter(input)
   if (error) return { state, error }
 
-  const existing = state.characters.find((c) => c.id === input.id && c.memberId === memberId)
+  const existing = charactersOf(state, memberId).find((c) => c.id === input.id)
   if (existing) {
     return {
       state: {
@@ -292,12 +294,12 @@ export function saveCharacter(state, memberId, input, makeId = () => crypto.rand
 
 /** Make one of the member's characters their main; the others become alts. */
 export function setMainCharacter(state, memberId, characterId) {
-  const owns = state.characters.some((c) => c.id === characterId && c.memberId === memberId)
+  const owns = charactersOf(state, memberId).some((c) => c.id === characterId)
   if (!owns) return state
   return {
     ...state,
     characters: state.characters.map((c) =>
-      c.memberId === memberId ? { ...c, main: c.id === characterId } : c,
+      c.memberId === memberId && !c.retired ? { ...c, main: c.id === characterId } : c,
     ),
   }
 }
@@ -310,55 +312,28 @@ export function planWithout(plan, isRemoved) {
   return { ...plan, team, locked, attendance: onlyTeam(plan.attendance, team), published: published ?? null }
 }
 
-function withoutCharacter(plan, characterId) {
-  return planWithout(plan, (e) => e.characterId === characterId)
-}
-
 /**
- * Delete one of the member's characters and every reference to it: roster entries, locks on those
- * entries, and weekly "declined" lists. A member's only character cannot be deleted. If the main is
- * deleted, the member's first remaining character becomes the main.
+ * What "Delete character" does: retire one of the member's characters. It disappears from their
+ * list, sign-ups, and the planner's choices, but rosters and attendance keep it, so history is not
+ * rewritten. Only the member's own character rows change, which online players are allowed to write;
+ * officers take a retired character off a current roster by hand (the planner flags it).
+ * A member's only active character cannot be retired. If the main is retired, the member's first
+ * remaining active character becomes the main.
  * @returns {{ state: AppState, error?: string }}
  */
-export function deleteCharacter(state, memberId, characterId) {
+export function retireCharacter(state, memberId, characterId) {
   const mine = charactersOf(state, memberId)
   const target = mine.find((c) => c.id === characterId)
   if (!target) return { state, error: 'Character not found.' }
   if (mine.length === 1)
     return { state, error: 'You need at least one character. Add another before deleting this one.' }
 
-  const remaining = state.characters.filter((c) => c.id !== characterId)
-  const nextMainId = target.main ? remaining.find((c) => c.memberId === memberId).id : null
-  const characters = remaining.map((c) => (c.id === nextMainId ? { ...c, main: true } : c))
-
-  const weeks = Object.fromEntries(
-    Object.entries(state.weeks).map(([weekIso, week]) => {
-      const checkins = Object.fromEntries(
-        Object.entries(week.checkins).map(([id, checkin]) => [
-          id,
-          {
-            ...checkin,
-            declined: checkin.declined.filter((d) => d !== characterId),
-            ...(checkin.raids
-              ? {
-                  raids: Object.fromEntries(
-                    Object.entries(checkin.raids).map(([raidId, pref]) => [
-                      raidId,
-                      { ...pref, declined: pref.declined.filter((d) => d !== characterId) },
-                    ]),
-                  ),
-                }
-              : {}),
-          },
-        ]),
-      )
-      const plans = Object.fromEntries(
-        Object.entries(week.plans).map(([id, plan]) => [id, withoutCharacter(plan, characterId)]),
-      )
-      return [weekIso, { ...week, checkins, plans }]
-    }),
-  )
-  return { state: { ...state, characters, weeks } }
+  const nextMainId = target.main ? mine.find((c) => c.id !== characterId).id : null
+  const characters = state.characters.map((c) => {
+    if (c.id === characterId) return { ...c, main: false, retired: true }
+    return c.id === nextMainId ? { ...c, main: true } : c
+  })
+  return { state: { ...state, characters } }
 }
 
 /**

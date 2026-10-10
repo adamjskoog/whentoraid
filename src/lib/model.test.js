@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { slotWindow } from './grid.js'
 import {
+  characterById,
   charactersOf,
-  deleteCharacter,
   enginePlayers,
   getCheckin,
-  getWeek,
   preferredCharacter,
   pruneOldWeeks,
+  retireCharacter,
   setMainCharacter,
   setPlan,
   isOfferingAny,
@@ -88,7 +88,7 @@ describe('character management', () => {
     expect(setMainCharacter(state, 'm0', 'c1a')).toBe(state)
   })
 
-  test('deleteCharacter removes the character and its roster entry, locks, and declines', () => {
+  test('retiring a character hides it from its player but keeps rosters and history', () => {
     let state = createSeedState()
     state = setCharacterOffered(state, SEED_WEEK, 'm0', 'c0b', false)
     const team = [
@@ -97,22 +97,38 @@ describe('character management', () => {
     ]
     state = setPlan(state, SEED_WEEK, { start: 0, team, locked: ['m0', 'm1'] })
 
-    const { state: next, error } = deleteCharacter(state, 'm0', 'c0b')
+    const { state: next, error } = retireCharacter(state, 'm0', 'c0b')
     expect(error).toBeUndefined()
     expect(charactersOf(next, 'm0').map((c) => c.id)).toEqual(['c0a'])
-    expect(getWeek(next, SEED_WEEK).plan).toMatchObject({ team: [team[1]], locked: ['m1'] })
-    expect(getCheckin(next, SEED_WEEK, 'm0').declined).toEqual([])
+    expect(characterById(next, 'c0b')).toMatchObject({ name: state.characters[1].name, retired: true })
+    expect(next.weeks).toBe(state.weeks)
+    expect(
+      enginePlayers(next, SEED_WEEK)
+        .find((p) => p.id === 'm0')
+        .characters.map((c) => c.id),
+    ).toEqual(['c0a'])
   })
 
-  test('deleting the main promotes the next character', () => {
-    const { state } = deleteCharacter(createSeedState(), 'm0', 'c0a')
+  test('retiring the main promotes the next active character', () => {
+    const { state } = retireCharacter(createSeedState(), 'm0', 'c0a')
     expect(charactersOf(state, 'm0')).toMatchObject([{ id: 'c0b', main: true }])
+    expect(characterById(state, 'c0a').main).toBe(false)
   })
 
-  test("refuses to delete a member's only character or someone else's", () => {
+  test("refuses to retire a member's only character, someone else's, or a retired one", () => {
     const state = createSeedState()
-    expect(deleteCharacter(state, 'm1', 'c1a').error).toMatch(/at least one character/)
-    expect(deleteCharacter(state, 'm0', 'c1a')).toEqual({ state, error: 'Character not found.' })
+    expect(retireCharacter(state, 'm1', 'c1a').error).toMatch(/at least one character/)
+    expect(retireCharacter(state, 'm0', 'c1a')).toEqual({ state, error: 'Character not found.' })
+    const retired = retireCharacter(state, 'm0', 'c0b').state
+    expect(retireCharacter(retired, 'm0', 'c0b').error).toBe('Character not found.')
+    expect(retireCharacter(retired, 'm0', 'c0a').error).toMatch(/at least one character/)
+  })
+
+  test('retired characters cannot be edited or made main', () => {
+    const retired = retireCharacter(createSeedState(), 'm0', 'c0b').state
+    expect(setMainCharacter(retired, 'm0', 'c0b')).toBe(retired)
+    const { state } = saveCharacter(retired, 'm0', { ...validCharacter, id: 'c0b' })
+    expect(characterById(state, 'c0b').name).toBe(characterById(retired, 'c0b').name)
   })
 
   test('preferredCharacter picks the offered main, then any offered, then the main', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { getRaid, setCurrentRaid } from './raids.js'
 import { createSeedState, SEED_WEEK } from './seed.js'
-import { deleteCharacter, getWeek, saveSettings, setPlan } from './model.js'
+import { getWeek, retireCharacter, saveSettings, setPlan } from './model.js'
 import { applySettings, benchHistory, plannerContext } from './planning.js'
 import { setAttendance } from './attendance.js'
 import { removeMember } from './members.js'
@@ -74,15 +74,16 @@ describe('independent raids', () => {
     }
   })
 
-  test('removing members or characters cleans every raid roster and lock', () => {
-    for (const state of [
-      removeMember(planned(), 'm0').state,
-      deleteCharacter(planned(), 'm0', 'c0b').state,
-    ]) {
-      for (const plan of Object.values(state.weeks[SEED_WEEK].plans)) {
-        expect(plan).toMatchObject({ team: [], locked: [], attendance: {} })
-      }
+  test('removing a member cleans every raid roster and lock', () => {
+    const state = removeMember(planned(), 'm0').state
+    for (const plan of Object.values(state.weeks[SEED_WEEK].plans)) {
+      expect(plan).toMatchObject({ team: [], locked: [], attendance: {} })
     }
+  })
+
+  test('retiring a character keeps every raid roster, lock, and attendance record', () => {
+    const state = planned()
+    expect(retireCharacter(state, 'm0', 'c0b').state.weeks).toBe(state.weeks)
   })
 
   test('backups and online rows preserve all raids and use distinct plan keys', () => {

@@ -64,6 +64,7 @@ export function stateToRows(state, guildId) {
       class: c.class,
       role: c.role,
       main: c.main,
+      retired: Boolean(c.retired),
       position,
     })),
     availability_templates: Object.entries(state.templates ?? {}).map(([memberId, template]) => ({
@@ -168,6 +169,7 @@ export function rowsToState(rows, viewer) {
       class: c.class,
       role: c.role,
       main: c.main,
+      ...(c.retired ? { retired: true } : {}),
     })),
     weeks,
   }
