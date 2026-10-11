@@ -16,18 +16,25 @@ export const CLASS_COLORS = {
 
 export const CLASS_NAMES = Object.keys(CLASS_COLORS)
 
-/** Classic Era talent trees, three per class, in the in-game order. */
-export const CLASS_SPECS = {
-  Warrior: ['Arms', 'Fury', 'Protection'],
-  Paladin: ['Holy', 'Protection', 'Retribution'],
-  Hunter: ['Beast Mastery', 'Marksmanship', 'Survival'],
-  Rogue: ['Assassination', 'Combat', 'Subtlety'],
-  Priest: ['Discipline', 'Holy', 'Shadow'],
-  Shaman: ['Elemental', 'Enhancement', 'Restoration'],
-  Mage: ['Arcane', 'Fire', 'Frost'],
-  Warlock: ['Affliction', 'Demonology', 'Destruction'],
-  Druid: ['Balance', 'Feral Combat', 'Restoration'],
+/**
+ * Classic Era talent trees, three per class in the in-game order, each with the raid role it usually
+ * fills. Feral Combat raids as either tank or damage, so it has no default (null).
+ */
+export const SPEC_ROLES = {
+  Warrior: { Arms: 'DPS', Fury: 'DPS', Protection: 'Tank' },
+  Paladin: { Holy: 'Healer', Protection: 'Tank', Retribution: 'DPS' },
+  Hunter: { 'Beast Mastery': 'DPS', Marksmanship: 'DPS', Survival: 'DPS' },
+  Rogue: { Assassination: 'DPS', Combat: 'DPS', Subtlety: 'DPS' },
+  Priest: { Discipline: 'Healer', Holy: 'Healer', Shadow: 'DPS' },
+  Shaman: { Elemental: 'DPS', Enhancement: 'DPS', Restoration: 'Healer' },
+  Mage: { Arcane: 'DPS', Fire: 'DPS', Frost: 'DPS' },
+  Warlock: { Affliction: 'DPS', Demonology: 'DPS', Destruction: 'DPS' },
+  Druid: { Balance: 'DPS', 'Feral Combat': null, Restoration: 'Healer' },
 }
+
+export const CLASS_SPECS = Object.fromEntries(
+  Object.entries(SPEC_ROLES).map(([name, specs]) => [name, Object.keys(specs)]),
+)
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
