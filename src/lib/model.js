@@ -1,9 +1,10 @@
 import { CLASS_COLORS, DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from './constants.js'
 import { gridFromHours, raidHours, validateDeadline, validateGuild } from './guild.js'
 import { addInterval, removeInterval } from './intervals.js'
-import { addDays, isIsoDate, mondayOf } from './time.js'
+import { addDays, isIsoDate, mondayOf, todayIso } from './time.js'
 import { getRaid, validateRaid } from './raids.js'
-import { templateFromRanges, templateRanges } from './availability-template.js'
+import { templateFor, templateFromRanges, templateRanges } from './availability-template.js'
+import { own } from './ids.js'
 
 /**
  * Members and characters are stored once. Each week holds only check-ins
@@ -54,13 +55,13 @@ export function emptyCheckin() {
 export function getWeek(state, weekIso) {
   const week = state.weeks[weekIso] ?? { checkins: {}, plans: {} }
   // `plan` is a view of the selected raid; only the plans map is persisted.
-  return { ...week, plan: week.plans[state.currentRaidId] ?? null }
+  return { ...week, plan: own(week.plans, state.currentRaidId) ?? null }
 }
 
 export function getCheckin(state, weekIso, memberId) {
-  const saved = getWeek(state, weekIso).checkins[memberId]
+  const saved = own(getWeek(state, weekIso).checkins, memberId)
   if (saved) return saved
-  const ranges = templateRanges(state.templates?.[memberId], weekIso)
+  const ranges = templateRanges(own(state.templates, memberId), weekIso)
   return ranges === null ? emptyCheckin() : { checkedIn: true, ranges, declined: [] }
 }
 
@@ -78,7 +79,7 @@ export function charactersOf(state, memberId) {
 }
 
 export function isOffered(checkin, characterId, raidId) {
-  const preference = checkin.raids?.[raidId]
+  const preference = own(checkin.raids, raidId)
   return (
     preference?.participating !== false && !(preference?.declined ?? checkin.declined).includes(characterId)
   )
@@ -188,11 +189,22 @@ export function setRaidParticipation(state, weekIso, memberId, raidId, participa
   }))
 }
 
-export function saveAvailabilityTemplate(state, weekIso, memberId) {
+/**
+ * Save the week's times as the usual schedule from that week on. The schedule it replaces stays as
+ * `previous` for the week before, so a week whose check-ins already closed keeps its times.
+ */
+export function saveAvailabilityTemplate(state, weekIso, memberId, now = Date.now()) {
   const checkin = getCheckin(state, weekIso, memberId)
+  const existing = own(state.templates, memberId)
+  // Only one older schedule is kept. When saving for a later week, keep the one covering this
+  // week, since this week's check-ins may already be closed; weeks in between then use it too.
+  const thisWeek = mondayOf(todayIso(state.guild.timezone, now))
+  const weekBefore = templateFor(existing, addDays(weekIso, -7))
+  const previous = weekIso > thisWeek ? (templateFor(existing, thisWeek) ?? weekBefore) : weekBefore
+  const template = templateFromRanges(weekIso, checkin.ranges, state.guild)
   return {
     ...state,
-    templates: { ...state.templates, [memberId]: templateFromRanges(weekIso, checkin.ranges, state.guild) },
+    templates: { ...state.templates, [memberId]: previous ? { ...template, previous } : template },
   }
 }
 
@@ -203,7 +215,7 @@ export function removeAvailabilityTemplate(state, memberId) {
 
 /** Reset just the week's time override; keep its raid and character choices. */
 export function useAvailabilityTemplate(state, weekIso, memberId) {
-  const ranges = templateRanges(state.templates?.[memberId], weekIso)
+  const ranges = templateRanges(own(state.templates, memberId), weekIso)
   if (ranges === null) return state
   return withCheckin(state, weekIso, memberId, (checkin) => ({ ...checkin, checkedIn: true, ranges }))
 }

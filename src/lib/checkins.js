@@ -1,6 +1,8 @@
+import { templateFor } from './availability-template.js'
+import { own } from './ids.js'
 import { getCheckin } from './model.js'
 import { escapeDiscord } from './roster-export.js'
-import { addDays, formatMonthDay, zonedTimeToUtc } from './time.js'
+import { addDays, formatMonthDay, mondayOf, todayIso, zonedTimeToUtc } from './time.js'
 
 /** Members who have not answered for the week, in guild order. */
 export function waitingOn(state, weekIso) {
@@ -12,6 +14,33 @@ export function deadlineUtc(state, weekIso) {
   const deadline = state.settings.checkinDeadline
   if (!deadline) return null
   return zonedTimeToUtc(addDays(weekIso, deadline.day), deadline.minutes, state.guild.timezone)
+}
+
+/**
+ * Whether the week's check-ins have closed (its deadline has passed). Online, only officers change
+ * a closed week's check-ins; the database enforces this too (enforce_checkin_deadline).
+ */
+export function checkinsClosed(state, weekIso, now = Date.now()) {
+  const deadline = deadlineUtc(state, weekIso)
+  return deadline !== null && now >= deadline
+}
+
+/** A schedule as text with sorted keys, so copies read back from the database compare equal. */
+function scheduleKey(schedule) {
+  return schedule ? JSON.stringify(schedule, Object.keys(schedule).sort()) : null
+}
+
+/**
+ * Whether going from `before` to `after` changes the times a usual schedule fills in for this
+ * week after its check-ins closed (the week has no saved check-in of the member's own).
+ * Mirrors enforce_template_deadline in the database.
+ */
+export function changesClosedWeek(before, after, memberId, now = Date.now()) {
+  const thisWeek = mondayOf(todayIso(before.guild.timezone, now))
+  if (!checkinsClosed(before, thisWeek, now)) return false
+  if (own(before.weeks[thisWeek]?.checkins, memberId)) return false
+  const covering = (state) => templateFor(own(state.templates, memberId), thisWeek)
+  return scheduleKey(covering(before)) !== scheduleKey(covering(after))
 }
 
 /** A Discord mention when the member's ID is known; otherwise their name as plain text. */

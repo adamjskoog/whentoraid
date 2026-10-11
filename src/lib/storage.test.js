@@ -178,6 +178,37 @@ describe('backups', () => {
     expect(parseBackup('')).toEqual({ error: 'That file is not a WhenToRaid backup. The file is empty.' })
     expect(parseBackup('{"hello": 1}').error).toMatch(/not a WhenToRaid backup/)
   })
+
+  test('reject backups whose records would break the page when shown', () => {
+    const seed = createSeedState()
+    const [week] = Object.keys(seed.weeks)
+    const firstMember = seed.members[0].id
+    const broken = [
+      { ...seed, members: [...seed.members, { id: 'constructor', name: 'Proto', discordId: '' }] },
+      { ...seed, characters: [...seed.characters, { ...seed.characters[0], id: 'c-x', memberId: 'nobody' }] },
+      {
+        ...seed,
+        weeks: {
+          ...seed.weeks,
+          [week]: {
+            ...seed.weeks[week],
+            checkins: {
+              ...seed.weeks[week].checkins,
+              [firstMember]: { checkedIn: true, ranges: 'all', declined: [] },
+            },
+          },
+        },
+      },
+      {
+        ...seed,
+        weeks: { ...seed.weeks, [week]: { ...seed.weeks[week], plans: { 'raid-20': { team: [] } } } },
+      },
+      { ...seed, templates: { [firstMember]: { fromWeek: 'soon', slots: [] } } },
+    ]
+    for (const state of broken) {
+      expect(parseBackup(backupJson(state)).error).toMatch(/missing required fields/)
+    }
+  })
 })
 
 describe('watchOtherTabs', () => {

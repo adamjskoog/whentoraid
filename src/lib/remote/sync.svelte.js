@@ -20,6 +20,7 @@ import { diffRows, rowsToState, stateToRows, TABLES } from './rows.js'
 const ACTIVE_GUILD_KEY = 'whentoraid-online-guild'
 const LEGACY_DRAFT_KEY = 'whentoraid-unsaved-online-draft'
 const DRAFT_KEY_PREFIX = 'whentoraid-unsaved-online-draft:'
+const PAGE_LOCK_PREFIX = 'whentoraid-page:'
 const RELOAD_DEBOUNCE_MS = 400
 const RETRY_MS = 5000
 
@@ -55,45 +56,96 @@ let reloadTimer
 let sessionUserId = null
 let sessionGeneration = 0
 let unsavedDraft = null
+/** Where the offered draft is stored: this page's own key, or a closed page's key it took over. */
+let unsavedDraftKey = null
 let reapplyRequested = null
 
-function draftKey(userId = sessionUserId, guildId = remote.guildId) {
-  return userId && guildId ? `${DRAFT_KEY_PREFIX}${userId}:${guildId}` : null
+/**
+ * Each page (a tab; a reload is a new page) keeps its recovery draft under its own key, so one tab
+ * finishing a save never deletes another tab's draft. A page holds a Web Lock for its lifetime;
+ * drafts of pages that still hold theirs are left to them, and only drafts of closed pages are
+ * offered for recovery.
+ */
+const PAGE_ID = crypto.randomUUID()
+try {
+  navigator.locks?.request(`${PAGE_LOCK_PREFIX}${PAGE_ID}`, () => new Promise(() => {})).catch(() => {})
+} catch {
+  // Without Web Locks, every other page's draft counts as left behind by a closed page.
 }
 
-function readDraft() {
+function draftPrefix(userId = sessionUserId) {
+  return `${DRAFT_KEY_PREFIX}${userId}:`
+}
+
+function draftKey(userId = sessionUserId, guildId = remote.guildId) {
+  return userId && guildId ? `${draftPrefix(userId)}${guildId}:${PAGE_ID}` : null
+}
+
+/** Ids of pages that are still open, or null when the browser cannot tell. */
+async function openPageIds() {
+  try {
+    const { held = [] } = await navigator.locks.query()
+    return new Set(
+      held
+        .map((lock) => lock.name)
+        .filter((name) => name?.startsWith(PAGE_LOCK_PREFIX))
+        .map((name) => name.slice(PAGE_LOCK_PREFIX.length)),
+    )
+  } catch {
+    return null
+  }
+}
+
+/** Every stored draft of `userId`'s that no other open page is handling. */
+async function leftDrafts(userId) {
+  if (!userId) return []
+  const open = await openPageIds()
+  const prefix = draftPrefix(userId)
+  const drafts = []
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (!key?.startsWith(prefix)) continue
+      // Keys before per-page drafts had no page id: `prefix + guildId`.
+      const [guildId, pageId = null] = key.slice(prefix.length).split(':')
+      if (pageId && pageId !== PAGE_ID && open?.has(pageId)) continue
+      const stored = JSON.parse(localStorage.getItem(key) ?? 'null')
+      if (stored?.userId !== userId || stored?.guildId !== guildId) continue
+      drafts.push({ key, stored })
+    }
+  } catch {
+    // Storage unavailable: nothing can be recovered from it.
+  }
+  return drafts
+}
+
+/** The newest usable draft for the open guild, moving one from the older session-storage format. */
+async function readDraft() {
   const key = draftKey()
   if (!key) return null
   try {
-    const stored = JSON.parse(localStorage.getItem(key) ?? 'null')
-    if (
-      stored?.userId === sessionUserId &&
-      stored?.guildId === remote.guildId &&
-      parseState(JSON.stringify(stored.state))
-    )
-      return stored
-    // Preserve drafts created by the previous session-storage implementation.
     const legacy = JSON.parse(sessionStorage.getItem(LEGACY_DRAFT_KEY) ?? 'null')
-    if (
-      legacy?.userId === sessionUserId &&
-      legacy?.guildId === remote.guildId &&
-      parseState(JSON.stringify(legacy.state))
-    ) {
+    if (legacy?.userId === sessionUserId && legacy?.guildId === remote.guildId) {
       localStorage.setItem(key, JSON.stringify(legacy))
       sessionStorage.removeItem(LEGACY_DRAFT_KEY)
-      return legacy
     }
   } catch {
     // Keep any in-memory draft available when browser storage is unavailable.
   }
-  return null
+  const usable = (await leftDrafts(sessionUserId))
+    .filter(({ stored }) => stored.guildId === remote.guildId)
+    .sort((a, b) => (b.stored.savedAt ?? 0) - (a.stored.savedAt ?? 0))
+  return usable[0] ?? null
 }
 
-function showDraftForOpenGuild() {
-  unsavedDraft = readDraft()
-  remote.hasUnsavedDraft = Boolean(
-    unsavedDraft && unsavedDraft.userId === sessionUserId && unsavedDraft.guildId === remote.guildId,
-  )
+async function showDraftForOpenGuild() {
+  const guildId = remote.guildId
+  const userId = sessionUserId
+  const found = await readDraft()
+  if (remote.guildId !== guildId || sessionUserId !== userId) return
+  unsavedDraft = found?.stored ?? null
+  unsavedDraftKey = found?.key ?? null
+  remote.hasUnsavedDraft = Boolean(unsavedDraft)
   if (remote.hasUnsavedDraft) remote.status = 'error'
 }
 
@@ -102,10 +154,14 @@ function preserveDraft(needsReview = true) {
   unsavedDraft = {
     userId: sessionUserId,
     guildId: remote.guildId,
+    savedAt: Date.now(),
     state: $state.snapshot(app.data),
   }
   try {
     localStorage.setItem(draftKey(), JSON.stringify(unsavedDraft))
+    // A closed page's draft that this page took over now lives under this page's key.
+    if (unsavedDraftKey && unsavedDraftKey !== draftKey()) localStorage.removeItem(unsavedDraftKey)
+    unsavedDraftKey = draftKey()
   } catch {
     // Before a save, the in-memory copy is enough: the save itself still has to go out.
     if (!needsReview) return false
@@ -119,13 +175,15 @@ function preserveDraft(needsReview = true) {
   return true
 }
 
+/** Forget this page's draft, and a closed page's draft it took over; never another tab's. */
 function clearDraft() {
-  const key = draftKey()
+  const keys = [draftKey(), unsavedDraftKey]
   unsavedDraft = null
+  unsavedDraftKey = null
   remote.hasUnsavedDraft = false
   reapplyRequested = null
   try {
-    if (key) localStorage.removeItem(key)
+    for (const key of keys) if (key) localStorage.removeItem(key)
     sessionStorage.removeItem(LEGACY_DRAFT_KEY)
   } catch {
     // Nothing else needs to be done when session storage is unavailable.
@@ -147,6 +205,10 @@ export function reapplyUnsavedDraft() {
     showToast('Wait for the latest online guild to load before reapplying your edit.')
     return
   }
+  if (!parseState(JSON.stringify(unsavedDraft.state))) {
+    showToast('This edit cannot be read by this version of WhenToRaid. Download it instead.')
+    return
+  }
   if (!diffRows(shadow, stateToRows(unsavedDraft.state, remote.guildId)).length) {
     dismissUnsavedDraft()
     return
@@ -157,7 +219,9 @@ export function reapplyUnsavedDraft() {
 
 export function dismissUnsavedDraft() {
   clearDraft()
-  if (remote.guildId) remote.status = 'saved'
+  if (!remote.guildId) return
+  remote.status = 'saved'
+  void showDraftForOpenGuild()
 }
 
 async function finishPendingSaves() {
@@ -270,10 +334,33 @@ export async function localTestSignIn(as) {
   if (error) throw new Error(error.message)
 }
 
-export async function signOut() {
+/**
+ * Sign out. Drafts left by closed pages hold whole guilds, so they are not left on a shared computer
+ * by accident: while any exist, signing out refuses (error code `UNSAVED_DRAFTS`), and
+ * `{ discardDrafts: true }` deletes them and signs out.
+ */
+export async function signOut({ discardDrafts = false } = {}) {
   await finishPendingSaves()
+  const drafts = await leftDrafts(sessionUserId)
+  if (drafts.length && !discardDrafts) {
+    // Name only guilds the player can still open; opening one offers its drafts one at a time.
+    const openable = remote.guilds
+      .filter((g) => drafts.some(({ stored }) => stored.guildId === g.id))
+      .map((g) => `“${g.name}”`)
+    const advice = openable.length
+      ? `Open ${openable.join(', ')} to download or reapply them, or sign out again to discard them.`
+      : 'They belong to guilds you can no longer open. Sign out again to discard them.'
+    throw Object.assign(new Error(`Edits that were never saved are stored in this browser. ${advice}`), {
+      code: 'UNSAVED_DRAFTS',
+    })
+  }
   const { error } = await supabase.auth.signOut()
   if (error) throw error
+  try {
+    for (const { key } of drafts) localStorage.removeItem(key)
+  } catch {
+    // Storage unavailable: nothing was stored there either.
+  }
 }
 
 /**
@@ -314,8 +401,8 @@ export async function openGuild(guildId, expectedGeneration = sessionGeneration)
   remote.status = 'saved'
   storeGuildId(guildId)
   app.data = state
-  showDraftForOpenGuild()
   follow(guildId)
+  await showDraftForOpenGuild()
 }
 
 export async function leaveGuild() {
@@ -334,6 +421,7 @@ export function closeGuild(preserveStoredGuild = false) {
   Object.assign(remote, { guildId: null, memberId: null, officer: false, status: 'saved' })
   remote.hasUnsavedDraft = false
   unsavedDraft = null
+  unsavedDraftKey = null
   reapplyRequested = null
   if (!preserveStoredGuild) storeGuildId(null)
   if (wasOnline) app.data = loadState()
@@ -399,7 +487,11 @@ export function pushChanges(state) {
       const revision = await applyOps(supabase, guildId, revisions[guildId], ops)
       if (saveEpochs[guildId] !== epoch || sessionUserId !== ownerUserId) return
       revisions[guildId] = revision
-      if (remote.guildId === guildId && pending === 1) clearDraft()
+      if (remote.guildId === guildId && pending === 1) {
+        const reapplied = reapplyRequested !== null
+        clearDraft()
+        if (reapplied) void showDraftForOpenGuild()
+      }
       if (remote.guildId === guildId && pending === 1 && remote.status === 'saving') {
         remote.status = 'saved'
       }

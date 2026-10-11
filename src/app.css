@@ -918,6 +918,13 @@ button:disabled:hover {
   display: inline;
   font-size: inherit;
 }
+/* Groups controls only to disable them together; no box of its own. */
+fieldset.plain {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
 .checkbox-row {
   display: flex;
   gap: 10px;

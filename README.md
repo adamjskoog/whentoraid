@@ -102,13 +102,20 @@ The database enforces:
 - Who may read and write each table.
 - The shape of stored availability, rosters, and settings.
 - Caps of 200 players per guild and 20 characters per player.
+- Storage budgets of about 8 MB each for a guild's raid plans and for its check-ins within a year of today.
 - Check-in weeks within a year of today.
 - Guilds created only through `create_guild`, at most 10 per account.
+- The check-in deadline. After a week's deadline only officers change its check-ins, and a player's usual schedule cannot change what it fills in for a closed week. Saving a new schedule keeps the one it replaced (`previous`) for the weeks before it starts, so a player can still change their schedule from next week on.
+- Member, character, and raid IDs that are safe as JavaScript object keys (no `constructor` or `__proto__`).
 
 What stays advisory (enforced in the app only):
 
-- The check-in deadline, and locks on a planned roster. A player could still edit their own availability after the deadline through the API.
+- Locks on a planned roster.
 - Officer trust: any officer can demote other officers or delete the guild.
+
+Each browser tab keeps its own recovery copy of an online edit that was not saved. Copies left by closed tabs are offered when that guild opens again. Signing out asks before discarding copies that were never reviewed, because each holds the whole guild.
+
+Every migration that changes the schema also redefines `app_schema_version()` to return its own timestamp. A unit test checks this, and the Pages workflow compares the hosted value with the newest migration's file name.
 
 Realtime change events are filtered to guild members, except delete events. Those carry only row keys (guild ID, member IDs, weeks), which Supabase Realtime does not filter by row-level security.
 

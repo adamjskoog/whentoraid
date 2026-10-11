@@ -10,8 +10,20 @@ export function templateFromRanges(weekIso, ranges, guild) {
   return { ...grid, fromWeek: weekIso, slots }
 }
 
-export function templateRanges(template, weekIso) {
-  if (!template || weekIso < template.fromWeek) return null
+/**
+ * The schedule that covers `weekIso`: the template itself from its `fromWeek` on, or before that
+ * the schedule it replaced (`previous`), or null. Mirrors template_for_week in the database.
+ */
+export function templateFor(template, weekIso) {
+  if (!template) return null
+  const { previous, ...current } = template
+  if (weekIso >= current.fromWeek) return current
+  return previous && weekIso >= previous.fromWeek ? previous : null
+}
+
+export function templateRanges(stored, weekIso) {
+  const template = templateFor(stored, weekIso)
+  if (!template) return null
   return template.slots.reduce((ranges, cell) => {
     const window = slotWindow(
       weekIso,

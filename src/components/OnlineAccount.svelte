@@ -27,6 +27,22 @@
     }
   }
 
+  /** Set when sign-out found unsaved drafts: the next click discards them. */
+  let discardDrafts = $state(false)
+
+  async function signOutOrConfirm() {
+    busy = true
+    try {
+      await signOut({ discardDrafts })
+      discardDrafts = false
+    } catch (error) {
+      discardDrafts = error.code === 'UNSAVED_DRAFTS'
+      showToast(error.message)
+    } finally {
+      busy = false
+    }
+  }
+
   const moveOnline = () =>
     run(
       () => createOnlineGuild($state.snapshot(app.data)),
@@ -97,6 +113,8 @@
       <button class="primary" disabled={busy} onclick={moveOnline}>Move “{app.data.guild.name}” online</button
       >
     {/if}
-    <button disabled={busy} onclick={() => run(signOut)}>Sign out</button>
+    <button disabled={busy} onclick={signOutOrConfirm}
+      >{discardDrafts ? 'Discard unsaved edits and sign out' : 'Sign out'}</button
+    >
   </div>
 {/if}
