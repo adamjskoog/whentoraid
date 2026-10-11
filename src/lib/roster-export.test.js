@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { saveCharacter } from './model.js'
 import { plannerContext } from './planning.js'
-import { DISCORD_MESSAGE_LIMIT, escapeDiscord, rosterDiscord, rosterText } from './roster-export.js'
+import {
+  DISCORD_MESSAGE_LIMIT,
+  escapeDiscord,
+  rosterDiscord,
+  rosterText,
+  splitForDiscord,
+} from './roster-export.js'
 import { createSeedState } from './seed.js'
 
 describe('rosterText', () => {
@@ -29,9 +35,9 @@ describe('rosterDiscord', () => {
     const state = createSeedState()
     const { plan, players } = plannerContext(state)
     const text = rosterDiscord(state, plan, players)
-    expect(text).toContain('**Tanks (2/2)**')
-    expect(text).toContain('**Healers (4/4)**')
-    expect(text).toContain('**Damage (14/14)**')
+    expect(text).toContain('🛡️ **Tanks (2/2)**')
+    expect(text).toContain('💚 **Healers (4/4)**')
+    expect(text).toContain('⚔️ **Damage (14/14)**')
     expect(text).toContain('- 🟫 Stoneguard (Adam) · Protection Warrior')
     expect(text).toMatch(/^- 🩵 \S+ \(\w+\) · Frost Mage$/m)
     expect(text).toMatch(/\*\*Bench:\*\* \w+/)
@@ -52,6 +58,35 @@ describe('rosterDiscord', () => {
     const text = rosterDiscord(state, plan, players)
     expect(text).not.toContain('@everyone')
     expect(text).toContain('@\u200beveryone \\*x\\*')
+  })
+})
+
+describe('splitForDiscord', () => {
+  const CONTINUED = '*(continued)*\n'
+  const sections = (count, linesEach, width) =>
+    Array.from({ length: count }, (_, s) =>
+      Array.from({ length: linesEach }, (_, l) => `S${s}L${l} ${'x'.repeat(width)}`).join('\n'),
+    ).join('\n\n')
+
+  test('text within the limit is one message, unchanged', () => {
+    expect(splitForDiscord('hello\n\nworld')).toEqual(['hello\n\nworld'])
+  })
+
+  test('long text splits between sections, every message fits, and nothing is lost', () => {
+    const text = sections(6, 8, 40)
+    const parts = splitForDiscord(text, 1000)
+    expect(parts.length).toBeGreaterThan(1)
+    for (const part of parts) expect(part.length).toBeLessThanOrEqual(1000)
+    expect(parts.slice(1).every((p) => p.startsWith(CONTINUED))).toBe(true)
+    expect(parts.map((p) => p.replace(CONTINUED, '')).join('\n\n')).toBe(text)
+  })
+
+  test('a section longer than one message splits between lines, never inside one', () => {
+    const text = sections(1, 60, 40)
+    const parts = splitForDiscord(text, 500)
+    for (const part of parts) expect(part.length).toBeLessThanOrEqual(500)
+    const lines = parts.flatMap((p) => p.replace(CONTINUED, '').split('\n'))
+    expect(lines).toEqual(text.split('\n'))
   })
 })
 

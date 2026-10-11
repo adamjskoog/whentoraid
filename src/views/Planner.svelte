@@ -42,7 +42,7 @@
     toggleLock,
     topDistinctDays,
   } from '../lib/planning.js'
-  import { DISCORD_MESSAGE_LIMIT, rosterDiscord, rosterText } from '../lib/roster-export.js'
+  import { rosterDiscord, rosterText, splitForDiscord } from '../lib/roster-export.js'
   import { showToast, offerUndo } from '../lib/toast.svelte.js'
 
   let showPublished = $state(false)
@@ -229,20 +229,30 @@
     showToast(cancelled ? 'Raid marked as cancelled' : 'Raid marked as held')
   }
 
-  /** Text to copy by hand when the clipboard API is unavailable (e.g. not a secure context). */
-  let manualCopyText = $state(null)
+  /** Messages to copy by hand when the clipboard API is unavailable (e.g. not a secure context). */
+  let manualCopyMessages = $state(null)
 
-  async function copyText(text, successMessage) {
+  /** Copy text for Discord, split into messages that each fit Discord's limit. */
+  function copyText(text, successMessage) {
+    return copyMessage(splitForDiscord(text), 0, successMessage)
+  }
+
+  /** Copy one message; while more remain, the toast offers to copy the next. */
+  async function copyMessage(messages, index, successMessage) {
     try {
-      await navigator.clipboard.writeText(text)
+      await navigator.clipboard.writeText(messages[index])
     } catch {
-      manualCopyText = text
+      manualCopyMessages = messages
       return
     }
+    if (messages.length === 1) return showToast(successMessage)
+    const next = index + 1
+    const more = next < messages.length
     showToast(
-      text.length > DISCORD_MESSAGE_LIMIT
-        ? `Copied, but it is ${text.length} characters, over Discord's ${DISCORD_MESSAGE_LIMIT}-character limit. Paste it in two messages.`
-        : successMessage,
+      `Copied message ${index + 1} of ${messages.length}. Paste it into Discord${more ? ', then copy the next' : ''}.`,
+      more
+        ? { label: `Copy message ${next + 1}`, run: () => copyMessage(messages, next, successMessage) }
+        : null,
     )
   }
 
@@ -452,13 +462,21 @@
   onclose={() => closeDialog('player')}
 />
 
-<Modal open={manualCopyText !== null} onclose={() => (manualCopyText = null)}>
+<Modal open={manualCopyMessages !== null} onclose={() => (manualCopyMessages = null)}>
   <h2>Copy for Discord</h2>
-  <p>Your browser blocked clipboard access. Select the text below and copy it.</p>
-  <textarea
-    class="copy-box"
-    readonly
-    rows="14"
-    value={manualCopyText}
-    onfocus={(e) => e.currentTarget.select()}></textarea>
+  <p>
+    Your browser blocked clipboard access. Select the text below and copy it{manualCopyMessages?.length > 1
+      ? ', one message at a time'
+      : ''}.
+  </p>
+  {#each manualCopyMessages ?? [] as message, i (i)}
+    {#if manualCopyMessages.length > 1}<h3>Message {i + 1} of {manualCopyMessages.length}</h3>{/if}
+    <textarea
+      class="copy-box"
+      readonly
+      rows="14"
+      aria-label="Message {i + 1}"
+      value={message}
+      onfocus={(e) => e.currentTarget.select()}></textarea>
+  {/each}
 </Modal>

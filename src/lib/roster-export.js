@@ -11,6 +11,39 @@ export const DISCORD_MESSAGE_LIMIT = 2000
 
 const ROLE_HEADINGS = { Tank: 'Tanks', Healer: 'Healers', DPS: 'Damage' }
 
+/** Standard emoji, so headings look the same in every Discord server. */
+const ROLE_EMOJI = { Tank: '🛡️', Healer: '💚', DPS: '⚔️' }
+
+const CONTINUED = '*(continued)*\n'
+
+/**
+ * `text` as Discord messages of at most `limit` characters. Splits between sections (blank lines)
+ * where it can, otherwise between lines; messages after the first start with "(continued)".
+ * Lines themselves are never split; the exports keep them far below the limit.
+ * @returns {string[]}
+ */
+export function splitForDiscord(text, limit = DISCORD_MESSAGE_LIMIT) {
+  if (text.length <= limit) return [text]
+  const room = limit - CONTINUED.length
+  // Pieces in order, each with the separator that joins it to the piece before.
+  const pieces = text
+    .split('\n\n')
+    .flatMap((section) =>
+      section.length <= room
+        ? [{ text: section, separator: '\n\n' }]
+        : section.split('\n').map((line, i) => ({ text: line, separator: i === 0 ? '\n\n' : '\n' })),
+    )
+  const messages = pieces.reduce((done, piece, i) => {
+    if (i === 0) return [piece.text]
+    const last = done.at(-1)
+    const budget = done.length === 1 ? limit : room
+    return last.length + piece.separator.length + piece.text.length <= budget
+      ? [...done.slice(0, -1), last + piece.separator + piece.text]
+      : [...done, piece.text]
+  }, [])
+  return messages.map((message, i) => (i === 0 ? message : CONTINUED + message))
+}
+
 /** Discord text cannot be colored, so each class gets the closest colored emoji. */
 export const CLASS_MARKERS = {
   Warrior: '🟫',
@@ -80,7 +113,7 @@ export function rosterDiscord(state, plan, players) {
       return `- ${marker}${escapeDiscord(character.name)} (${escapeDiscord(member.name)}) · ${escapeDiscord(`${character.spec} ${character.class}`)}${warningText}`
     })
     return [
-      `**${ROLE_HEADINGS[role]} (${entries.length}/${(plan.targets ?? settings.targets)[i]})**`,
+      `${ROLE_EMOJI[role]} **${ROLE_HEADINGS[role]} (${entries.length}/${(plan.targets ?? settings.targets)[i]})**`,
       ...lines,
       '',
     ]
