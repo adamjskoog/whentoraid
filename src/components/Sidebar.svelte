@@ -1,5 +1,6 @@
 <script>
   import { app } from '../lib/app.svelte.js'
+  import { requestLeave } from '../lib/leave-guard.js'
   import { setCurrentMember } from '../lib/members.js'
   import { memberById } from '../lib/model.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
@@ -17,7 +18,7 @@
 
   function goHome(event) {
     event.preventDefault()
-    app.view = 'planner'
+    requestLeave(() => (app.view = 'planner'))
   }
 
   function switchMember(event) {
@@ -37,7 +38,10 @@
   <p class="eyebrow">YOUR GUILD</p>
   <nav>
     {#each NAV_ITEMS as item (item.view)}
-      <button class:active={app.view === item.view} onclick={() => (app.view = item.view)}>
+      <button
+        class:active={app.view === item.view}
+        onclick={() => requestLeave(() => (app.view = item.view))}
+      >
         {item.icon} <span>{item.label}</span>
       </button>
     {/each}

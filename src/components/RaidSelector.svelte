@@ -1,5 +1,6 @@
 <script>
   import { app } from '../lib/app.svelte.js'
+  import { requestLeave } from '../lib/leave-guard.js'
   import { getRaid, setCurrentRaid } from '../lib/raids.js'
   const raid = $derived(getRaid(app.data))
 </script>
@@ -11,7 +12,7 @@
         type="button"
         class:primary={raid.id === option.id}
         aria-pressed={raid.id === option.id}
-        onclick={() => (app.data = setCurrentRaid(app.data, option.id))}
+        onclick={() => requestLeave(() => (app.data = setCurrentRaid(app.data, option.id)))}
         >{option.name} · {option.size} players</button
       >
     {/each}

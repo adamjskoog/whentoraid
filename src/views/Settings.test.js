@@ -75,6 +75,73 @@ describe('Guild settings: backup and start over', () => {
   })
 })
 
+describe('Guild settings: unsaved changes', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    app.data = createSeedState()
+    app.view = 'settings'
+    app.unreadable = null
+  })
+
+  const guildName = () => screen.getByLabelText('Guild name')
+  const goToPlanner = () => fireEvent.click(screen.getByRole('button', { name: /Raid planner/ }))
+
+  test('leaving with unsaved changes stays on the page until they are discarded', async () => {
+    render(App)
+    await fireEvent.input(guildName(), { target: { value: 'Renamed' } })
+
+    await goToPlanner()
+    expect(app.view).toBe('settings')
+    expect(screen.getByText(/You have unsaved guild settings/)).toBeTruthy()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(app.view).toBe('planner')
+    expect(app.data.guild.name).toBe('The After Hours')
+  })
+
+  test('changing a field back to its saved value is not an unsaved change', async () => {
+    render(App)
+    await fireEvent.input(guildName(), { target: { value: 'Renamed' } })
+    await fireEvent.input(guildName(), { target: { value: 'The After Hours' } })
+    await goToPlanner()
+    expect(app.view).toBe('planner')
+  })
+
+  test('turning off the check-in deadline counts as a change', async () => {
+    render(App)
+    await fireEvent.click(screen.getByRole('checkbox', { name: /check in by a deadline/ }))
+    await goToPlanner()
+    expect(app.view).toBe('settings')
+  })
+
+  test('switching raids with unsaved changes waits, and discarding resets the form', async () => {
+    render(App)
+    const before = app.data.currentRaidId
+    await fireEvent.input(guildName(), { target: { value: 'Renamed' } })
+    const other = screen.getAllByRole('button', { pressed: false }).find((b) => b.closest('.raid-selector'))
+    await fireEvent.click(other)
+    expect(app.data.currentRaidId).toBe(before)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(app.data.currentRaidId).not.toBe(before)
+    expect(guildName().value).toBe('The After Hours')
+    await goToPlanner()
+    expect(app.view).toBe('planner')
+  })
+
+  test('closing the tab with unsaved changes asks the browser to confirm', async () => {
+    render(App)
+    const clean = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(clean)
+    expect(clean.defaultPrevented).toBe(false)
+
+    await fireEvent.input(guildName(), { target: { value: 'Renamed' } })
+    const dirty = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(dirty)
+    expect(dirty.defaultPrevented).toBe(true)
+  })
+})
+
 describe('recovering unreadable saved data', () => {
   beforeEach(() => {
     localStorage.clear()

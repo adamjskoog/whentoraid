@@ -71,3 +71,17 @@ test('the availability map can be driven from the keyboard', async ({ page, isMo
   await page.getByRole('button', { name: 'Healers', exact: true }).click()
   await expect(map.locator('.cell').first()).toHaveAttribute('aria-label', /healers can stay/)
 })
+
+test('Back with unsaved guild settings stays put until the changes are discarded', async ({ page }) => {
+  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await page.getByLabel('Guild name').fill('Renamed')
+
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Guild settings' })).toBeVisible()
+  await expect(page).toHaveURL(/#\/settings\//)
+  await expect(page.getByText(/You have unsaved guild settings/)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Discard changes' }).click()
+  await expect(page.getByRole('heading', { name: 'Find your next raid night.' })).toBeVisible()
+  await expect(page).toHaveURL(/#\/planner\//)
+})
