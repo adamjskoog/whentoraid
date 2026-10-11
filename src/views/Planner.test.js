@@ -179,6 +179,30 @@ describe('Planner check-ins and weeks', () => {
     vi.unstubAllGlobals()
   })
 
+  test('a roster over Discord’s limit is copied one message at a time', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    const seed = createSeedState()
+    const long = (i) => `${'Longname'.repeat(3)}${String(i).padStart(6, '0')}`
+    app.data = {
+      ...seed,
+      members: seed.members.map((m, i) => ({ ...m, name: long(i) })),
+      characters: seed.characters.map((c, i) => ({ ...c, name: long(100 + i) })),
+    }
+    render(Planner)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy for Discord' }))
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(toast.message).toMatch(/^Copied message 1 of 2\./)
+    expect(toast.action.label).toBe('Copy message 2')
+
+    toast.action.run()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+    expect(writeText.mock.calls[1][0]).toMatch(/^\*\(continued\)\*/)
+    for (const [text] of writeText.mock.calls) expect(text.length).toBeLessThanOrEqual(2000)
+    vi.unstubAllGlobals()
+  })
+
   test('the bench is grouped by whether players can come', () => {
     render(Planner)
     expect(screen.getByRole('heading', { name: /Free for this session/ })).toBeTruthy()
