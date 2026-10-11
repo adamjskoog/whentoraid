@@ -1,6 +1,6 @@
 name: Deploy to GitHub Pages
 
-# Publishes the static build to https://adamjskoog.github.io/whentoraid/ once the checks and
+# Publishes the static build to https://whentoraid.github.io/ once the checks and
 # end-to-end and database tests pass, on every push to main. To redeploy without a push: Actions → Deploy to
 # GitHub Pages → Run workflow.
 
