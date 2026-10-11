@@ -1,5 +1,5 @@
 <script>
-  import { CLASS_NAMES, CLASS_SPECS, ROLES } from '../lib/constants.js'
+  import { CLASS_NAMES, CLASS_SPECS, ROLES, SPEC_ROLES } from '../lib/constants.js'
 
   /**
    * Inputs for one character. `prefix` namespaces the field names when the form also has other
@@ -12,6 +12,8 @@
   let characterClass = $state(draft.class)
   // svelte-ignore state_referenced_locally
   let spec = $state(draft.spec)
+  // svelte-ignore state_referenced_locally
+  let role = $state(draft.role)
 
   /** A spec saved before the dropdown existed stays selectable until the class changes. */
   const specs = $derived.by(() => {
@@ -19,9 +21,15 @@
     return spec && characterClass === draft.class && !known.includes(spec) ? [spec, ...known] : known
   })
 
+  /** Choosing a spec suggests its usual raid role; the role stays editable afterwards. */
+  function suggestRole() {
+    role = SPEC_ROLES[characterClass]?.[spec] ?? role
+  }
+
   function chooseClass(event) {
     characterClass = event.currentTarget.value
     if (!(CLASS_SPECS[characterClass] ?? []).includes(spec)) spec = ''
+    suggestRole()
   }
 </script>
 
@@ -39,7 +47,7 @@
 </label>
 <label class="field">
   Specialization
-  <select name="{prefix}spec" required bind:value={spec}>
+  <select name="{prefix}spec" required bind:value={spec} onchange={suggestRole}>
     <option value="" disabled>Choose a specialization</option>
     {#each specs as name (name)}
       <option>{name}</option>
@@ -48,9 +56,9 @@
 </label>
 <label class="field">
   Raid role
-  <select name="{prefix}role">
-    {#each ROLES as role (role)}
-      <option selected={role === draft.role}>{role}</option>
+  <select name="{prefix}role" bind:value={role}>
+    {#each ROLES as option (option)}
+      <option>{option}</option>
     {/each}
   </select>
 </label>

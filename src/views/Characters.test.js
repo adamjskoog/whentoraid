@@ -41,6 +41,35 @@ describe('Characters view', () => {
     expect(spec.value).toBe('')
   })
 
+  test('choosing a spec fills in its usual raid role, which can still be changed', async () => {
+    render(Characters)
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Edit character' })[0])
+    const role = screen.getByLabelText('Raid role')
+    expect(role.value).toBe('Tank')
+
+    await fireEvent.change(screen.getByLabelText('Class'), { target: { value: 'Priest' } })
+    await fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Holy' } })
+    expect(role.value).toBe('Healer')
+    await fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Shadow' } })
+    expect(role.value).toBe('DPS')
+
+    await fireEvent.change(role, { target: { value: 'Healer' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Save character' }))
+    expect(charactersOf(app.data, 'm0').find((c) => c.id === 'c0a')).toMatchObject({
+      class: 'Priest',
+      spec: 'Shadow',
+      role: 'Healer',
+    })
+  })
+
+  test('Feral Combat keeps whichever role was already chosen', async () => {
+    render(Characters)
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Edit character' })[0])
+    await fireEvent.change(screen.getByLabelText('Class'), { target: { value: 'Druid' } })
+    await fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Feral Combat' } })
+    expect(screen.getByLabelText('Raid role').value).toBe('Tank')
+  })
+
   test('a spec typed before the dropdown existed stays until it is changed', async () => {
     app.data = {
       ...app.data,
