@@ -38,6 +38,7 @@
     plannerContext,
     readyRoleCounts,
     rebuildTeam,
+    retimeTeam,
     toggleLock,
     topDistinctDays,
   } from '../lib/planning.js'
@@ -167,9 +168,18 @@
     savePlan(plan.start, plan.team, toggleLock(plan.locked, memberId))
   }
 
+  /** Moving the session keeps who can still come (and locked players) and refills the rest. */
   function moveSession(day, slot) {
+    if (officersOnly() || viewPublished) return
     const startSlot = clampStartSlot(slot, settings.durationSlots, guild)
-    savePlan(slotWindow(weekIso, day, startSlot, settings.durationSlots, guild).start, plan.team)
+    const window = slotWindow(weekIso, day, startSlot, settings.durationSlots, guild)
+    const { team, replaced } = retimeTeam(players, window, settings.targets, plan.team, plan.locked)
+    savePlan(window.start, team)
+    if (replaced) {
+      showToast(
+        `${replaced} ${replaced === 1 ? 'player' : 'players'} who can’t make this time moved to the bench, and open slots were refilled. “Undo roster change” puts them back.`,
+      )
+    }
   }
 
   function place(memberId, characterId, role) {

@@ -138,6 +138,21 @@ export function rebuildTeam(players, window, targets, team, locked) {
 }
 
 /**
+ * The roster for a session moved to `window`: locked members and everyone who can still play stay
+ * where they are; the rest are replaced from who is free at the new time.
+ * @param {RosterEntry[]} team roster before the move
+ * @param {string[]} locked member IDs
+ * @returns {{ team: RosterEntry[], replaced: number }} `replaced` counts entries dropped from `team`
+ */
+export function retimeTeam(players, window, targets, team, locked) {
+  const kept = team.filter((e) => locked.includes(e.memberId) || conflicts(e, players, window).length === 0)
+  return {
+    team: compose(players, window, targets, { locked: kept }).team,
+    replaced: team.length - kept.length,
+  }
+}
+
+/**
  * Put one member's character in a role, replacing any spot they already hold.
  * @returns {{ team: RosterEntry[] } | { error: string }}
  */

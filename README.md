@@ -160,7 +160,7 @@ Members and characters are stored once. Each week holds only check-ins (availabi
 - Keyboard: the availability map and grid are single Tab stops; arrow keys, Home, and End move between cells.
 - Weekly half-hour availability grid, mouse painting, click/tap, and keyboard toggling.
 - Character profiles, multiple alts, and per-week willingness to bring each character. Characters can be edited, deleted (two-click confirm; a member's last character is kept), and promoted to main.
-- The planner heatmap shows how many players could stay for a full session starting at each time, shaded relative to guild size.
+- The planner heatmap shows how many players could stay for a full session starting at each time, shaded relative to guild size. Picking a time there moves the session: locked players and everyone who can still come stay, and the rest move to the bench while open slots refill from who is free. "Undo roster change" reverts the move.
 - Adjustable tank/healer/DPS targets and raid duration.
 - Ranked raid windows using full-session availability and role requirements.
 - Dynamic programming assigns at most one character per person, maximizing filled role slots, then favoring players who sat out recently, then main characters.
