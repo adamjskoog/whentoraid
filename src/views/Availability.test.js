@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { app } from '../lib/app.svelte.js'
 import { getCheckin, setCurrentWeek } from '../lib/model.js'
-import { createSeedState } from '../lib/seed.js'
+import { slotWindow } from '../lib/grid.js'
+import { createSeedState, SEED_WEEK } from '../lib/seed.js'
 import Availability from './Availability.svelte'
 
 const NEW_WEEK = '2026-10-05'
@@ -34,6 +35,30 @@ describe('Availability view', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Can’t make it this week' }))
     expect(getCheckin(app.data, NEW_WEEK, 'm0')).toMatchObject({ checkedIn: true, ranges: [] })
     expect(container.querySelector('small[role=status]').textContent).toMatch(/not available this week/)
+  })
+
+  test('a day header fills an empty day, and clears a day that has any times', async () => {
+    render(Availability)
+    const wednesday = slotWindow(NEW_WEEK, 2, 0, app.data.guild.slotsPerDay, app.data.guild)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Mark Wed available' }))
+    expect(getCheckin(app.data, NEW_WEEK, 'm0')).toMatchObject({ checkedIn: true, ranges: [wednesday] })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Mark Wed unavailable' }))
+    expect(getCheckin(app.data, NEW_WEEK, 'm0')).toMatchObject({ checkedIn: true, ranges: [] })
+  })
+
+  test('clearing one day keeps the rest of the week', async () => {
+    app.data = createSeedState()
+    render(Availability)
+    const before = getCheckin(app.data, SEED_WEEK, 'm0').ranges
+    const friday = slotWindow(SEED_WEEK, 4, 0, app.data.guild.slotsPerDay, app.data.guild)
+    expect(before.some((r) => r.start < friday.end && r.end > friday.start)).toBe(true)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Mark Fri unavailable' }))
+    const after = getCheckin(app.data, SEED_WEEK, 'm0').ranges
+    expect(after.some((r) => r.start < friday.end && r.end > friday.start)).toBe(false)
+    expect(after).toEqual(before.filter((r) => r.end <= friday.start || r.start >= friday.end))
   })
 
   test('warns when no character is offered', async () => {

@@ -378,6 +378,17 @@ p {
   font-size: 10px;
   padding: 5px 0 10px;
 }
+.day-toggle {
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.day-toggle:hover {
+  color: var(--text);
+  background: var(--panel);
+}
 .time {
   color: var(--muted);
   font-size: 10px;

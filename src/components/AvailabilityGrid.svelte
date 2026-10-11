@@ -1,8 +1,10 @@
 <script>
+  import { DAYS } from '../lib/constants.js'
   import { displayZone } from '../lib/display.svelte.js'
-  import { formatSlotDay, weekSlotWindows } from '../lib/grid.js'
+  import { formatSlotDay, slotWindow, weekSlotWindows } from '../lib/grid.js'
   import { focusCell, nextCell } from '../lib/grid-nav.js'
   import { covers } from '../lib/intervals.js'
+  import { addDays, dayOfMonth } from '../lib/time.js'
   import WeekGrid from './WeekGrid.svelte'
 
   /**
@@ -55,6 +57,12 @@
     lastCellKey = null
   }
 
+  /** A day header clears a day that has any of your times, and fills an empty one. */
+  function toggleDay(day) {
+    const hasAny = slotWindows[day].some((window) => covers(ranges, window))
+    onpaint(slotWindow(weekIso, day, 0, grid.slotsPerDay, grid), !hasAny)
+  }
+
   /** Only one cell is a Tab stop; arrow keys move between cells (roving tabindex). */
   let focused = $state({ day: 0, slot: 0 })
   // Fall back to the first cell if the remembered one no longer exists (fewer slots per day).
@@ -96,10 +104,24 @@
   ></button>
 {/snippet}
 
+{#snippet dayHead(day)}
+  {@const hasAny = slotWindows[day].some((window) => covers(ranges, window))}
+  <button
+    class="day day-toggle"
+    aria-label="Mark {DAYS[day]} {hasAny ? 'unavailable' : 'available'}"
+    title={hasAny ? 'Clear this whole day' : 'Mark this whole day available'}
+    onclick={() => toggleDay(day)}
+    >{DAYS[day].toUpperCase()}<small>{dayOfMonth(addDays(weekIso, day))}</small></button
+  >
+{/snippet}
+
 <div bind:this={container}>
-  <WeekGrid {weekIso} {grid} {cell} />
+  <WeekGrid {weekIso} {grid} {cell} {dayHead} />
 </div>
 <div class="legend">
-  <span>Click or drag to mark your availability. Keyboard: arrow keys to move, Space to toggle.</span>
+  <span
+    >Click or drag to mark your availability. Click a day to clear it, or to fill an empty one. Keyboard:
+    arrow keys to move, Space to toggle.</span
+  >
   <span>■ Available</span>
 </div>
