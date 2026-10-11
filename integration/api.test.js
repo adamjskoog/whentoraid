@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'vitest'
-import { applyOps, createGuild, fetchGuild, listGuilds, myDiscordId } from '../src/lib/remote/api.js'
+import { applyOps, createGuildWithRows, fetchGuild, listGuilds, myDiscordId } from '../src/lib/remote/api.js'
 import { diffRows, rowsToState, stateToRows } from '../src/lib/remote/rows.js'
 import {
   markUnavailable,
@@ -14,6 +14,11 @@ import { discordId, signedInPlayer } from './setup.js'
 
 const THIS_WEEK = mondayOf(todayIso('UTC'))
 const SINCE = addDays(THIS_WEEK, -7 * 12)
+
+async function save(client, guildId, before, after) {
+  const { revision } = await fetchGuild(client, guildId, SINCE)
+  return applyOps(client, guildId, revision, diffRows(before, after))
+}
 
 /**
  * The seed guild moved to the current week (the database only takes check-ins within a year of
@@ -57,7 +62,7 @@ describe('online guilds against a local Supabase', () => {
   test('an officer creates a guild and uploads the whole roster', async () => {
     state = officerGuild(officerDiscord)
     const me = state.members[0]
-    guildId = await createGuild(
+    guildId = await createGuildWithRows(
       officer,
       {
         name: state.guild.name,
@@ -67,9 +72,8 @@ describe('online guilds against a local Supabase', () => {
         settings: state.settings,
       },
       { id: me.id, name: me.name, position: 0 },
+      stateToRows(state, '00000000-0000-0000-0000-000000000000'),
     )
-    const created = await fetchGuild(officer, guildId, SINCE)
-    await applyOps(officer, diffRows(created, stateToRows(state, guildId)))
 
     const loaded = rowsToState(await fetchGuild(officer, guildId, SINCE), {
       currentWeek: state.currentWeek,
@@ -78,13 +82,63 @@ describe('online guilds against a local Supabase', () => {
     expect(loaded).toEqual(state)
   })
 
+  test('a failed initial upload leaves no partly created guild', async () => {
+    const before = await listGuilds(officer)
+    const rows = stateToRows(state, '00000000-0000-0000-0000-000000000000')
+    rows.characters[0].role = 'Invalid'
+    await expect(
+      createGuildWithRows(
+        officer,
+        {
+          name: 'Should not exist',
+          timezone: state.guild.timezone,
+          dayStartHour: state.guild.dayStartHour,
+          slotsPerDay: state.guild.slotsPerDay,
+          settings: state.settings,
+        },
+        { id: state.members[0].id, name: state.members[0].name, position: 0 },
+        rows,
+      ),
+    ).rejects.toThrow()
+    expect(await listGuilds(officer)).toEqual(before)
+  })
+
+  test('direct table writes and revision claims cannot bypass a guild save', async () => {
+    const before = await fetchGuild(officer, guildId, SINCE)
+    const { error: guildError } = await officer
+      .from('guilds')
+      .update({ name: 'Bypassed revision' })
+      .eq('id', guildId)
+    const { error: insertError } = await officer.from('members').insert({
+      guild_id: guildId,
+      id: 'm-bypass',
+      name: 'Bypass',
+      discord_id: '',
+      is_officer: false,
+      position: 99,
+    })
+    const { error: memberError } = await officer.from('members').delete().eq('guild_id', guildId)
+    const { error: revisionError } = await officer.rpc('claim_guild_revision', {
+      p_guild_id: guildId,
+      p_revision: before.revision,
+    })
+    expect(guildError?.code).toBe('42501')
+    expect(insertError?.code).toBe('42501')
+    expect(memberError?.code).toBe('42501')
+    expect(revisionError).toBeTruthy()
+    const after = await fetchGuild(officer, guildId, SINCE)
+    expect(after.revision).toBe(before.revision)
+    expect(after.guilds[0].name).toBe(before.guilds[0].name)
+    expect(after.members).toEqual(before.members)
+  })
+
   test('adding a player’s Discord ID lets them in', async () => {
     expect(await listGuilds(player)).toEqual([])
     const invited = {
       ...state,
       members: state.members.map((m, i) => (i === 1 ? { ...m, discordId: playerDiscord } : m)),
     }
-    await applyOps(officer, diffRows(stateToRows(state, guildId), stateToRows(invited, guildId)))
+    await save(officer, guildId, stateToRows(state, guildId), stateToRows(invited, guildId))
     state = invited
     expect((await listGuilds(player)).map((g) => g.id)).toEqual([guildId])
   })
@@ -95,14 +149,12 @@ describe('online guilds against a local Supabase', () => {
     const shadow = stateToRows(state, guildId)
 
     const checkedIn = setSlotAvailable(state, THIS_WEEK, mine, { start: 1e12, end: 1e12 + 1800000 }, true)
-    await applyOps(player, diffRows(shadow, stateToRows(checkedIn, guildId)))
+    await save(player, guildId, shadow, stateToRows(checkedIn, guildId))
     const reloaded = rowsToState(await fetchGuild(player, guildId, SINCE), state)
     expect(reloaded.weeks[THIS_WEEK].checkins[mine]).toEqual(checkedIn.weeks[THIS_WEEK].checkins[mine])
 
     const meddling = markUnavailable(state, THIS_WEEK, theirs)
-    await expect(applyOps(player, diffRows(shadow, stateToRows(meddling, guildId)))).rejects.toThrow(
-      /permission/,
-    )
+    await expect(save(player, guildId, shadow, stateToRows(meddling, guildId))).rejects.toThrow(/permission/)
   })
 
   test('a player deletes their own character even when it is on a roster', async () => {
@@ -110,13 +162,13 @@ describe('online guilds against a local Supabase', () => {
     const mine = state.members[1].id
     const alt = { name: 'Emberfall', realm: 'Whitemane', class: 'Priest', spec: 'Holy', role: 'Healer' }
     const withAlt = saveCharacter(state, mine, alt, () => 'c-integration-alt').state
-    await applyOps(player, diffRows(stateToRows(state, guildId), stateToRows(withAlt, guildId)))
+    await save(player, guildId, stateToRows(state, guildId), stateToRows(withAlt, guildId))
     const team = [{ memberId: mine, characterId: 'c-integration-alt', role: 'Healer' }]
     const rostered = setPlan(withAlt, THIS_WEEK, { start: 1e12, team, locked: [mine] })
-    await applyOps(officer, diffRows(stateToRows(withAlt, guildId), stateToRows(rostered, guildId)))
+    await save(officer, guildId, stateToRows(withAlt, guildId), stateToRows(rostered, guildId))
 
     const retired = retireCharacter(rostered, mine, 'c-integration-alt').state
-    await applyOps(player, diffRows(stateToRows(rostered, guildId), stateToRows(retired, guildId)))
+    await save(player, guildId, stateToRows(rostered, guildId), stateToRows(retired, guildId))
 
     const reloaded = rowsToState(await fetchGuild(player, guildId, SINCE), state)
     expect(reloaded.characters).toEqual(retired.characters)
@@ -127,7 +179,88 @@ describe('online guilds against a local Supabase', () => {
   test('a player cannot rename the guild', async () => {
     const renamed = { ...state, guild: { ...state.guild, name: 'Hijacked' } }
     await expect(
-      applyOps(player, diffRows(stateToRows(state, guildId), stateToRows(renamed, guildId))),
+      save(player, guildId, stateToRows(state, guildId), stateToRows(renamed, guildId)),
     ).rejects.toThrow(/permission/)
+  })
+
+  test('a forbidden delete is reported and does not advance the revision', async () => {
+    const before = await fetchGuild(player, guildId, SINCE)
+    const other = before.characters.find((character) => character.member_id !== state.members[1].id)
+    await expect(
+      applyOps(player, guildId, before.revision, [
+        {
+          table: 'characters',
+          kind: 'delete',
+          keys: [{ guild_id: guildId, id: other.id }],
+        },
+      ]),
+    ).rejects.toThrow(/permission/)
+    const after = await fetchGuild(player, guildId, SINCE)
+    expect(after.revision).toBe(before.revision)
+    expect(after.characters.some((character) => character.id === other.id)).toBe(true)
+  })
+
+  test('a stale officer edit is rejected without overwriting the newer plan', async () => {
+    const revision = (await fetchGuild(officer, guildId, SINCE)).revision
+    const first = { ...state, guild: { ...state.guild, name: 'First edit' } }
+    const second = { ...state, guild: { ...state.guild, name: 'Stale edit' } }
+    await applyOps(
+      officer,
+      guildId,
+      revision,
+      diffRows(stateToRows(state, guildId), stateToRows(first, guildId)),
+    )
+    await expect(
+      applyOps(
+        officer,
+        guildId,
+        revision,
+        diffRows(stateToRows(state, guildId), stateToRows(second, guildId)),
+      ),
+    ).rejects.toThrow(/changed in another window/)
+    expect((await fetchGuild(officer, guildId, SINCE)).guilds[0].name).toBe('First edit')
+  })
+
+  test('a failed multi-table batch rolls back its earlier rows and revision', async () => {
+    const before = await fetchGuild(officer, guildId, SINCE)
+    const ops = [
+      {
+        table: 'members',
+        kind: 'upsert',
+        rows: [
+          {
+            guild_id: guildId,
+            id: 'm-rollback',
+            name: 'Rollback',
+            discord_id: '',
+            is_officer: false,
+            position: 99,
+          },
+        ],
+      },
+      {
+        table: 'characters',
+        kind: 'upsert',
+        rows: [
+          {
+            guild_id: guildId,
+            id: 'c-rollback',
+            member_id: 'm-rollback',
+            name: 'Broken',
+            realm: 'Whitemane',
+            spec: 'Arms',
+            class: 'Warrior',
+            role: 'Invalid',
+            main: true,
+            retired: false,
+            position: 99,
+          },
+        ],
+      },
+    ]
+    await expect(applyOps(officer, guildId, before.revision, ops)).rejects.toThrow()
+    const after = await fetchGuild(officer, guildId, SINCE)
+    expect(after.members.some((member) => member.id === 'm-rollback')).toBe(false)
+    expect(after.revision).toBe(before.revision)
   })
 })

@@ -1,9 +1,17 @@
 <script>
   import { DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from '../lib/constants.js'
   let { raid } = $props()
-  let targets = $state([...raid.targets])
-  let size = $state(raid.size)
+  let targets = $state([])
+  let size = $state(0)
+  let loadedRaid = ''
   const total = $derived(targets.reduce((sum, n) => sum + (Number(n) || 0), 0))
+  $effect(() => {
+    const signature = JSON.stringify([raid.id, raid.size, raid.targets])
+    if (signature === loadedRaid) return
+    loadedRaid = signature
+    targets = [...raid.targets]
+    size = raid.size
+  })
 </script>
 
 <div class="settings-grid">

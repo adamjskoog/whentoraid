@@ -50,17 +50,23 @@ insert into g select public.create_guild(
     "settings": {"raids": [{"id": "raid-20", "name": "20-player Raid", "size": 20, "targets": [2, 4, 14], "durationSlots": 6}], "checkinDeadline": null}}',
   '{"id": "m-officer", "name": "Sam"}'
 );
-insert into public.members (guild_id, id, name, discord_id, position) values
-  ((select id from g), 'm-player', 'Nova', '522222222222222222', 1);
+select public.apply_guild_changes((select id from g), 0,
+  jsonb_build_array(jsonb_build_object('table','members','kind','upsert','rows',
+    jsonb_build_array(jsonb_build_object('guild_id',(select id from g),'id','m-player',
+      'name','Nova','discord_id','522222222222222222','is_officer',false,'position',1)))));
 
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000b1');
 select lives_ok($$
-  insert into public.availability_templates (guild_id, member_id, template)
-  values ((select id from g), 'm-player', (select value from template))
+  select public.apply_guild_changes((select id from g), 1,
+    jsonb_build_array(jsonb_build_object('table','availability_templates','kind','upsert','rows',
+      jsonb_build_array(jsonb_build_object('guild_id',(select id from g),
+        'member_id','m-player','template',(select value from template))))))
 $$, 'a player saves their own usual schedule');
 select throws_ok($$
-  insert into public.availability_templates (guild_id, member_id, template)
-  values ((select id from g), 'm-officer', (select value from template))
+  select public.apply_guild_changes((select id from g), 2,
+    jsonb_build_array(jsonb_build_object('table','availability_templates','kind','upsert','rows',
+      jsonb_build_array(jsonb_build_object('guild_id',(select id from g),
+        'member_id','m-officer','template',(select value from template))))))
 $$, '42501', null, 'a player cannot save someone else''s schedule');
 
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000a1');

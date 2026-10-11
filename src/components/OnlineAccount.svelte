@@ -1,7 +1,7 @@
 <script>
   import { app } from '../lib/app.svelte.js'
   import {
-    closeGuild,
+    leaveGuild,
     createOnlineGuild,
     localTestSignIn,
     localTestSignInAvailable,
@@ -92,11 +92,11 @@
 
   <div class="buttons spaced-top">
     {#if remote.guildId}
-      <button disabled={busy} onclick={closeGuild}>Use the guild saved in this browser</button>
+      <button disabled={busy} onclick={() => run(leaveGuild)}>Use the guild saved in this browser</button>
     {:else if app.data}
       <button class="primary" disabled={busy} onclick={moveOnline}>Move “{app.data.guild.name}” online</button
       >
     {/if}
-    <button disabled={busy} onclick={signOut}>Sign out</button>
+    <button disabled={busy} onclick={() => run(signOut)}>Sign out</button>
   </div>
 {/if}

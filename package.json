@@ -12,7 +12,7 @@
     "test:e2e": "playwright test",
     "test:db": "supabase test db",
     "test:integration": "vitest run --config vitest.integration.config.js",
-    "db:start": "supabase start -x studio,imgproxy,vector,logflare,inbucket,edge-runtime,supavisor",
+    "db:start": "supabase start -x studio,imgproxy,vector,logflare,inbucket,edge-runtime,supavisor && supabase migration up --local",
     "db:stop": "supabase stop",
     "lint": "eslint .",
     "format": "prettier --write .",

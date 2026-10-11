@@ -30,12 +30,12 @@ WhenToRaid runs in two modes. Without backend settings it is **browser-only**: o
   - Officers can edit anyone's check-in ("Act as").
   - Signed-out visitors can read nothing.
   - The last officer cannot step down.
-- `create_guild` makes its caller the first officer. "Move this guild online" in Guild settings uploads a browser guild, including its history.
+- `create_online_guild` makes its caller the first officer and uploads the browser guild, including its history, in one transaction.
 
 ### How sync works
 
 - The app still holds the whole guild in `app.data`, and every change still goes through the pure functions in `src/lib/`.
-- Online, `src/lib/remote/rows.js` turns each new state into table rows, diffs them against what the server has, and `api.js` sends only the changed rows.
+- Online, `src/lib/remote/rows.js` turns each new state into table rows and diffs them against what the server has. A single database function applies each batch atomically and checks the guild revision first. If another viewer saved meanwhile, the stale edit is refused and the app reloads the server's version.
 - Realtime notifies every open copy of the guild, and each one reloads it.
 - A write the server refuses is reported and reverted by reloading.
 - The week you view and the player you act as stay per viewer and are never stored.
@@ -133,7 +133,7 @@ Realtime change events are filtered to guild members, except delete events. Thos
 
 Version 6 adds `settings.raids` and a `plans` map keyed by raid ID in each week. The selected raid is a viewer preference (`currentRaidId`); weekly availability stays shared. Existing saves and backups migrate their composition and plan into `raid-20`, keeping rosters, locks, and attendance. New guilds have two 10-player raids (2 tanks / 2 healers / 6 damage) and one 20-player raid (2 / 4 / 14). These are editable starting compositions, not verified encounter requirements. Rename each raid in Guild settings when its name is known.
 
-For an existing online installation, apply `supabase/migrations/20261005130000_multiple_raids.sql` before deploying this build. The plan primary key is now `(guild_id, week, raid_id)`, and guild settings store all three compositions. The migration keeps existing plans under `raid-20` and preserves the existing access policies. Old frontend builds should be reloaded after deployment.
+For an existing online installation, follow [the atomic write rollout and rollback procedure](docs/ATOMIC_WRITE_ROLLOUT.md) before deploying this build. The Pages workflow checks the hosted `app_schema_version()` marker before publishing an online build and stops if the migration is missing. The new save RPC is incompatible with old frontend builds, so coordinate a maintenance window and reload open tabs after deployment.
 
 Members and characters are stored once. Each week holds only check-ins (availability as UTC time ranges, plus characters declined that week) and the officer's plan (session start in UTC plus the roster). Storing UTC lets the grid be shown in any timezone later without migrating data. Check-ins save as they are edited; there is no submit step. The first edit of a week checks the member in, and "Can't make it this week" records a response with no availability, so officers can tell "unavailable" from "hasn't answered". Browser storage uses the key `whentoraid-v3` (the key predates the state version); `storage.js` upgrades older saved state on load, one version at a time. Version 5 adds each member's Discord user ID (optional, used to @mention them in reminders), a weekly check-in deadline, and per-plan attendance (`attended`, `late`, `noshow`) plus a `cancelled` flag. Data saved by the legacy prototype is not migrated. If saved data cannot be loaded (damaged, or saved by a newer version), it is copied to `whentoraid-unreadable` before setup opens, and setup offers it for download. On load, weeks more than 12 weeks old lose their check-ins and keep only their plan (attendance history), so storage stays small. The "show my time" choice is stored per browser under `whentoraid-show-local-time`, outside the guild.
 
@@ -180,7 +180,7 @@ Online mode (Supabase) covers the following:
 - Officer and player permissions enforced by the database.
 - Invitations by Discord ID.
 
-Officers are marked in the app; they are not yet synced from Discord server roles. The Discord server ID and officer role ID fields are notes for that future step, which needs a server function to call Discord's API with the `guilds.members.read` scope. Online, edits save as they happen; two officers editing the same roster at once is last-write-wins per row. Online guilds need a connection: offline, the page loads but changes are not saved. Blizzard import and notifications are not implemented. In browser-only mode, stored Discord IDs are used only for @mentions. Do not enter secrets anywhere in the app.
+Officers are marked in the app; they are not yet synced from Discord server roles. The Discord server ID and officer role ID fields are notes for that future step, which needs a server function to call Discord's API with the `guilds.members.read` scope. Online edits save as they happen. If two viewers edit from the same revision, the second save is rejected and their view reloads; they must review and reapply their change. Online guilds need a connection: offline, the page loads but changes are not saved. Blizzard import and notifications are not implemented. In browser-only mode, stored Discord IDs are used only for @mentions. Do not enter secrets anywhere in the app.
 
 The grid is shown in the guild's timezone, within its raid hours (the demo guild uses America/Los_Angeles, noon–midnight). "Act as" stands in for sign-in: anyone using this browser can act as any player. Availability is stored in UTC. Grid columns are always the guild's days; in "show my time" mode only the labels change. There is no multi-night roster optimization. On touch screens, dragging a finger across the availability grid paints cells (swipe the time labels or outside the grid to scroll). Roster cards are moved by pressing and holding, then dragging; the page scrolls when the card nears the top or bottom edge. Touch behavior is verified with Chromium touch emulation, not yet on physical iOS or Android devices.
 
@@ -193,7 +193,7 @@ Role slots, backup depth, bench fairness, and main preference are the optimizati
 3. Done: Discord sign-in through Supabase Auth, with membership and officer rights enforced by row-level security. Still to add: sync officers from Discord server roles (`guilds.members.read` via a server function), and require membership in the configured Discord server.
 4. Add Blizzard server-side API credentials and verify API availability specifically for WoW: Forever; do not assume existing Classic endpoints support it. Import realm, character, specialization, and equipment only where supported; keep manual entry and a last-sync timestamp. Discord identity does not itself prove ownership of a WoW character. Never treat gear as a complete measure of raid readiness.
 5. Expand the optimizer with configurable hard and soft constraints: required buffs, class caps, and encounter requirements (backup depth, bench fairness, main preference, and manual locks exist). Explain shortages and scoring. Save officer drafts separately from published raid rosters; revalidate when availability changes.
-6. Add concurrent-edit protection, migration tests, OAuth/access-control tests, timezone/DST tests, and end-to-end tests before inviting the guild.
+6. Add OAuth/access-control tests and test the complete hosted sign-in and migration rollout before inviting the guild. Revision checks, atomic save tests, database migration tests, timezone/DST tests, and browser-only end-to-end tests are in place.
 
 The next setup inputs are the region, Discord server ID, officer role IDs, and a hosting destination. Credentials belong in server environment variables, never in chat or frontend files.
 
@@ -209,4 +209,4 @@ Blizzard confirms the WoW: Forever launch on November 4, 2026. Forever-specific 
 
 `npm test` runs the Vitest suite: engine, model, planning, members, setup, check-ins, attendance, exports, timezone/DST, storage upgrades, and component tests for the planner, setup, members, characters, availability, and heatmap. `npm run test:e2e` builds the app and runs Playwright against it on desktop and mobile Chrome.
 
-GitHub Actions (`.github/workflows/`): `ci.yml` runs `npm run check`, the Playwright tests, and the Supabase database and integration tests on every push and pull request. `deploy.yml` publishes `dist/` to GitHub Pages (<https://adamjskoog.github.io/whentoraid/>) on every push to `main`, after the checks and Playwright tests pass. To redeploy without a push, use Actions → Deploy to GitHub Pages → Run workflow. The build uses relative asset paths, so it also works on Netlify, Vercel, or any static host.
+GitHub Actions (`.github/workflows/`): `ci.yml` runs `npm run check`, the Playwright tests, and the Supabase database and integration tests on every push and pull request. `deploy.yml` publishes `dist/` to GitHub Pages (<https://adamjskoog.github.io/whentoraid/>) only after those same checks and a hosted schema-version check. Apply migrations with `npx supabase db push` before a Supabase-enabled deploy; a version mismatch blocks publishing. To redeploy without a push, use Actions → Deploy to GitHub Pages → Run workflow. The build uses relative asset paths, so it also works on Netlify, Vercel, or any static host.

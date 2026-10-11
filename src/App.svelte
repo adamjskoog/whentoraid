@@ -3,7 +3,14 @@
   import { setCurrentWeek } from './lib/model.js'
   import { DEFAULT_RAID_ID, setCurrentRaid } from './lib/raids.js'
   import { formatHash, parseHash } from './lib/route.js'
-  import { initRemote, pushChanges, remote } from './lib/remote/sync.svelte.js'
+  import {
+    dismissUnsavedDraft,
+    downloadUnsavedDraft,
+    initRemote,
+    pushChanges,
+    reapplyUnsavedDraft,
+    remote,
+  } from './lib/remote/sync.svelte.js'
   import { sameGuild, saveState, watchOtherTabs } from './lib/storage.js'
   import { showToast } from './lib/toast.svelte.js'
   import Modal from './components/Modal.svelte'
@@ -28,6 +35,7 @@
   const ONLINE_LABELS = { saved: 'Online · saved', saving: 'Online · saving…', error: 'Online · not saved' }
 
   let discordOpen = $state(false)
+  let confirmReapply = $state(false)
   let storageWarningShown = false
   /** Set when another tab saved with a newer app version: saving here would overwrite its data. */
   let savingPaused = false
@@ -113,17 +121,48 @@
     </header>
 
     <div id="content">
-      {#if app.view === 'availability'}
-        <Availability />
-      {:else if app.view === 'characters'}
-        <Characters />
-      {:else if app.view === 'members'}
-        <Members />
-      {:else if app.view === 'settings'}
-        <Settings />
-      {:else}
-        <Planner />
+      {#if remote.hasUnsavedDraft}
+        <section class="unsaved-notice" role="alert">
+          <strong>Your last online edit was not saved.</strong>
+          <p>
+            The current guild has been reloaded. Download your edit for safekeeping, or reapply it over the
+            current online version.
+          </p>
+          <div class="buttons">
+            <button onclick={downloadUnsavedDraft}>Download unsaved edit</button>
+            {#if confirmReapply}
+              <button
+                class="primary"
+                onclick={() => {
+                  reapplyUnsavedDraft()
+                  confirmReapply = false
+                }}>Confirm reapply</button
+              >
+            {:else}
+              <button onclick={() => (confirmReapply = true)}>Reapply my edit</button>
+            {/if}
+            <button
+              onclick={() => {
+                dismissUnsavedDraft()
+                confirmReapply = false
+              }}>Discard unsaved edit</button
+            >
+          </div>
+        </section>
       {/if}
+      <div inert={remote.hasUnsavedDraft}>
+        {#if app.view === 'availability'}
+          <Availability />
+        {:else if app.view === 'characters'}
+          <Characters />
+        {:else if app.view === 'members'}
+          <Members />
+        {:else if app.view === 'settings'}
+          <Settings />
+        {:else}
+          <Planner />
+        {/if}
+      </div>
     </div>
 
     <footer>Built for real life. Ready for raid night.<span>WHEN TO RAID · FOREVER</span></footer>
