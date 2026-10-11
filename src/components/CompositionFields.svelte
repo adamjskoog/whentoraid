@@ -1,9 +1,14 @@
 <script>
   import { DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from '../lib/constants.js'
   let { raid } = $props()
-  let targets = $state([])
-  let size = $state(0)
-  let loadedRaid = ''
+  // Start from the raid, so the form has its values on the first render; the effect below picks up
+  // later changes to the saved raid (for example, another officer's edit arriving online).
+  // svelte-ignore state_referenced_locally
+  let targets = $state([...raid.targets])
+  // svelte-ignore state_referenced_locally
+  let size = $state(raid.size)
+  // svelte-ignore state_referenced_locally
+  let loadedRaid = JSON.stringify([raid.id, raid.size, raid.targets])
   const total = $derived(targets.reduce((sum, n) => sum + (Number(n) || 0), 0))
   $effect(() => {
     const signature = JSON.stringify([raid.id, raid.size, raid.targets])

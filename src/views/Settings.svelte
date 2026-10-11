@@ -1,4 +1,5 @@
 <script>
+  import { tick, untrack } from 'svelte'
   import OnlineAccount from '../components/OnlineAccount.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import RestoreButton from '../components/RestoreButton.svelte'
@@ -15,6 +16,7 @@
     timeInputToMinutes,
     timeZoneOptions,
   } from '../lib/guild.js'
+  import { setLeaveGuard } from '../lib/leave-guard.js'
   import { tracksAttendance } from '../lib/model.js'
   import { applySettings } from '../lib/planning.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
@@ -33,6 +35,46 @@
   let hasDeadline = $state(app.data.settings.checkinDeadline !== null)
   /** Both "start over" actions erase the guild, so each takes two clicks: 'demo' | 'new' | null. */
   let confirming = $state(null)
+
+  /** Bumped to throw away unsaved edits: the form renders again from the saved settings. */
+  let formVersion = $state(0)
+  let form = $state()
+  /** The form's values as loaded and as they are now; they differ while there are unsaved edits. */
+  let loaded = $state('')
+  let current = $state('')
+  const dirty = $derived(current !== loaded)
+
+  const formValues = () => (form ? JSON.stringify([...new FormData(form)]) : '')
+
+  // Take the loaded values once the form is bound, and again whenever it is rebuilt: another raid,
+  // or edits discarded.
+  $effect(() => {
+    void form
+    void settings.id
+    void formVersion
+    untrack(() => {
+      loaded = current = formValues()
+    })
+  })
+
+  /** Fields such as the deadline time appear after a toggle re-renders, so read the form after it. */
+  async function trackChanges() {
+    await tick()
+    current = formValues()
+  }
+
+  function discardChanges() {
+    hasDeadline = app.data.settings.checkinDeadline !== null
+    formVersion += 1
+  }
+
+  $effect(() => setLeaveGuard({ isDirty: () => dirty, discard: discardChanges }))
+
+  function warnBeforeUnload(event) {
+    if (!dirty) return
+    event.preventDefault()
+    event.returnValue = ''
+  }
 
   function save(event) {
     event.preventDefault()
@@ -109,106 +151,116 @@
 
 <RaidSelector />
 
-<form class="panel settings-panel" onsubmit={save}>
-  <h2>Guild</h2>
-  <div class="settings-grid">
-    <label class="field"
-      >Guild name<input name="guildName" required maxlength="60" value={guild.name} /></label
-    >
-    <label class="field">
-      Guild timezone
-      <select name="timezone">
-        {#each zones as zone (zone)}
-          <option selected={zone === guild.timezone}>{zone}</option>
-        {/each}
-      </select>
-    </label>
-    <label class="field">
-      Raids can start from
-      <select name="startHour">
-        {#each START_HOUR_OPTIONS as hour (hour.value)}
-          <option value={hour.value} selected={hour.value === hours.startHour}>{hour.label}</option>
-        {/each}
-      </select>
-    </label>
-    <label class="field">
-      Raids must end by
-      <select name="endHour">
-        {#each END_HOUR_OPTIONS as hour (hour.value)}
-          <option value={hour.value} selected={hour.value === hours.endHour}>{hour.label}</option>
-        {/each}
-      </select>
-    </label>
-  </div>
+<svelte:window onbeforeunload={warnBeforeUnload} />
 
-  <h2>Raid composition</h2>
-  <p>Editing {settings.name}. The role slots must add up to the raid size.</p>
-  {#key settings.id}
-    <CompositionFields raid={settings} />
-  {/key}
-
-  <h2>Weekly check-in deadline</h2>
-  <p>Shown in the planner and used in “Copy reminder”, so everyone answers before you pick a night.</p>
-  <label class="checkbox-row">
-    <input type="checkbox" bind:checked={hasDeadline} />
-    Ask players to check in by a deadline
-  </label>
-  {#if hasDeadline}
+{#key formVersion}
+  <form
+    class="panel settings-panel"
+    bind:this={form}
+    onsubmit={save}
+    oninput={trackChanges}
+    onchange={trackChanges}
+  >
+    <h2>Guild</h2>
     <div class="settings-grid">
+      <label class="field"
+        >Guild name<input name="guildName" required maxlength="60" value={guild.name} /></label
+      >
       <label class="field">
-        Deadline day
-        <select name="deadlineDay">
-          {#each DAYS as dayName, day (dayName)}
-            <option value={day} selected={day === deadline.day}>{dayName}</option>
+        Guild timezone
+        <select name="timezone">
+          {#each zones as zone (zone)}
+            <option selected={zone === guild.timezone}>{zone}</option>
           {/each}
         </select>
       </label>
       <label class="field">
-        Deadline time ({guild.timezone})
-        <input name="deadlineTime" type="time" required value={minutesToTimeInput(deadline.minutes)} />
+        Raids can start from
+        <select name="startHour">
+          {#each START_HOUR_OPTIONS as hour (hour.value)}
+            <option value={hour.value} selected={hour.value === hours.startHour}>{hour.label}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="field">
+        Raids must end by
+        <select name="endHour">
+          {#each END_HOUR_OPTIONS as hour (hour.value)}
+            <option value={hour.value} selected={hour.value === hours.endHour}>{hour.label}</option>
+          {/each}
+        </select>
       </label>
     </div>
-  {/if}
 
-  <h2>Attendance</h2>
-  <p>
-    Record who attended, was late, or did not show after each raid. Records appear on Guild members and in
-    each player’s roster details.
-  </p>
-  <label class="checkbox-row">
-    <input type="checkbox" name="trackAttendance" checked={tracksAttendance(app.data)} />
-    Track attendance after each raid
-  </label>
+    <h2>Raid composition</h2>
+    <p>Editing {settings.name}. The role slots must add up to the raid size.</p>
+    {#key settings.id}
+      <CompositionFields raid={settings} />
+    {/key}
 
-  <h2>Discord access</h2>
-  <p>
-    These IDs are notes for future Discord role syncing. Online access currently uses the Discord ID saved on
-    each guild member and the officer setting in this app.
-  </p>
-  <div class="settings-grid">
-    <label class="field">
-      Discord server ID
-      <input
-        name="discordServerId"
-        inputmode="numeric"
-        pattern="[0-9]*"
-        placeholder="Your Discord server ID"
-        value={guild.discordServerId}
-      />
+    <h2>Weekly check-in deadline</h2>
+    <p>Shown in the planner and used in “Copy reminder”, so everyone answers before you pick a night.</p>
+    <label class="checkbox-row">
+      <input type="checkbox" bind:checked={hasDeadline} />
+      Ask players to check in by a deadline
     </label>
-    <label class="field">
-      Officer role IDs (comma-separated)
-      <input
-        name="officerRoleIds"
-        pattern="[0-9, ]*"
-        placeholder="Role IDs with planner access"
-        value={guild.officerRoleIds}
-      />
+    {#if hasDeadline}
+      <div class="settings-grid">
+        <label class="field">
+          Deadline day
+          <select name="deadlineDay">
+            {#each DAYS as dayName, day (dayName)}
+              <option value={day} selected={day === deadline.day}>{dayName}</option>
+            {/each}
+          </select>
+        </label>
+        <label class="field">
+          Deadline time ({guild.timezone})
+          <input name="deadlineTime" type="time" required value={minutesToTimeInput(deadline.minutes)} />
+        </label>
+      </div>
+    {/if}
+
+    <h2>Attendance</h2>
+    <p>
+      Record who attended, was late, or did not show after each raid. Records appear on Guild members and in
+      each player’s roster details.
+    </p>
+    <label class="checkbox-row">
+      <input type="checkbox" name="trackAttendance" checked={tracksAttendance(app.data)} />
+      Track attendance after each raid
     </label>
-  </div>
-  <p class="note">Changing these IDs does not change who can access this guild.</p>
-  <button class="primary form-actions">Save settings</button>
-</form>
+
+    <h2>Discord access</h2>
+    <p>
+      These IDs are notes for future Discord role syncing. Online access currently uses the Discord ID saved
+      on each guild member and the officer setting in this app.
+    </p>
+    <div class="settings-grid">
+      <label class="field">
+        Discord server ID
+        <input
+          name="discordServerId"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          placeholder="Your Discord server ID"
+          value={guild.discordServerId}
+        />
+      </label>
+      <label class="field">
+        Officer role IDs (comma-separated)
+        <input
+          name="officerRoleIds"
+          pattern="[0-9, ]*"
+          placeholder="Role IDs with planner access"
+          value={guild.officerRoleIds}
+        />
+      </label>
+    </div>
+    <p class="note">Changing these IDs does not change who can access this guild.</p>
+    <button class="primary form-actions">Save settings</button>
+  </form>
+{/key}
 
 <section class="panel settings-panel spaced-top">
   <h2>Online</h2>

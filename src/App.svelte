@@ -1,5 +1,6 @@
 <script>
   import { app } from './lib/app.svelte.js'
+  import { hasUnsavedChanges, requestLeave } from './lib/leave-guard.js'
   import { setCurrentWeek } from './lib/model.js'
   import { DEFAULT_RAID_ID, setCurrentRaid } from './lib/raids.js'
   import { formatHash, parseHash } from './lib/route.js'
@@ -95,8 +96,22 @@
     lastView = app.view
   })
 
+  /** Back, Forward, or an edited URL. With unsaved settings, the page stays until they are discarded. */
   function followUrl() {
     const route = parseHash(location.hash)
+    const here =
+      app.data &&
+      route.view === app.view &&
+      (!route.week || route.week === app.data.currentWeek) &&
+      (route.raid ?? DEFAULT_RAID_ID) === app.data.currentRaidId
+    if (here || !hasUnsavedChanges()) return applyRoute(route)
+    // The address has already changed; put this page's back until the edits are discarded.
+    const current = formatHash(app.view, app.data.currentWeek, app.data.currentRaidId)
+    history.pushState(null, '', `${location.pathname}${location.search}${current}`)
+    requestLeave(() => applyRoute(route))
+  }
+
+  function applyRoute(route) {
     lastView = route.view
     app.view = route.view
     if (app.data && route.week) app.data = setCurrentWeek(app.data, route.week)
