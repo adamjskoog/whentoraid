@@ -46,6 +46,32 @@ describe('Planner locks', () => {
   })
 })
 
+describe('Planner roster cards', () => {
+  beforeEach(() => {
+    app.data = createSeedState()
+  })
+
+  test('each card shows its spec icon, and the class color is set for the name', () => {
+    render(Planner)
+    const card = screen.getByRole('button', { name: 'Edit Stoneguard' }).closest('.player')
+    expect(card.querySelector('img.spec-icon').getAttribute('src')).toContain(
+      'ability_warrior_defensivestance',
+    )
+    expect(card.style.getPropertyValue('--class')).toBe('#c69b6d')
+  })
+
+  test('a spec typed before the dropdown existed falls back to the role symbol', () => {
+    app.data = {
+      ...app.data,
+      characters: app.data.characters.map((c) => (c.id === 'c0a' ? { ...c, spec: 'Deep Prot' } : c)),
+    }
+    render(Planner)
+    const card = screen.getByRole('button', { name: 'Edit Stoneguard' }).closest('.player')
+    expect(card.querySelector('img.spec-icon')).toBeNull()
+    expect(card.querySelector('.mini').textContent).toBe('◈')
+  })
+})
+
 describe('Planner moving the session', () => {
   beforeEach(() => {
     app.data = createSeedState()

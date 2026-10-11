@@ -4,6 +4,7 @@
   import { conflicts } from '../lib/engine.js'
   import { characterById, memberById } from '../lib/model.js'
   import { BENCH_LOOKBACK_WEEKS } from '../lib/planning.js'
+  import { specIconUrl } from '../lib/spec-icons.js'
   import { touchDrag } from '../lib/touch-drag.js'
 
   /**
@@ -25,6 +26,9 @@
   const member = $derived(memberById(app.data, entry.memberId))
   const character = $derived(characterById(app.data, entry.characterId))
   const problems = $derived(conflicts(entry, players, window))
+  const iconUrl = $derived(character ? specIconUrl(character.class, character.spec) : null)
+  /** A blocked or offline icon falls back to the role symbol. */
+  let failedUrl = $state(null)
   const satOut = $derived(players.find((p) => p.id === entry.memberId)?.priority ?? 0)
 
   function startDrag(event) {
@@ -46,7 +50,20 @@
     use:touchDrag={{ ondrop: readonly ? () => {} : onmove }}
     style:--class={CLASS_COLORS[character.class] ?? '#aaa'}
   >
-    <span class="mini" aria-hidden="true">{ROLE_ICONS[character.role]}</span>
+    {#if iconUrl && iconUrl !== failedUrl}
+      <img
+        class="spec-icon"
+        src={iconUrl}
+        alt=""
+        width="26"
+        height="26"
+        loading="lazy"
+        referrerpolicy="no-referrer"
+        onerror={() => (failedUrl = iconUrl)}
+      />
+    {:else}
+      <span class="mini" aria-hidden="true">{ROLE_ICONS[character.role]}</span>
+    {/if}
     <div>
       <strong>{character.name}</strong>
       <small>{member.name} · {character.spec} {character.class}</small>

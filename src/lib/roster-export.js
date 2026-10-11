@@ -11,6 +11,19 @@ export const DISCORD_MESSAGE_LIMIT = 2000
 
 const ROLE_HEADINGS = { Tank: 'Tanks', Healer: 'Healers', DPS: 'Damage' }
 
+/** Discord text cannot be colored, so each class gets the closest colored emoji. */
+export const CLASS_MARKERS = {
+  Warrior: '🟫',
+  Paladin: '🩷',
+  Hunter: '🟩',
+  Rogue: '🟨',
+  Priest: '⬜',
+  Shaman: '🟦',
+  Mage: '🩵',
+  Warlock: '🟪',
+  Druid: '🟧',
+}
+
 function describeEntry(state, entry, players, plan) {
   const member = memberById(state, entry.memberId)
   const character = characterById(state, entry.characterId)
@@ -63,7 +76,8 @@ export function rosterDiscord(state, plan, players) {
       if (!described) return '- (missing character)'
       const { member, character, warnings } = described
       const warningText = warnings.length ? ` ⚠ ${warnings.join(', ')}` : ''
-      return `- ${escapeDiscord(character.name)} (${escapeDiscord(member.name)}) · ${escapeDiscord(`${character.spec} ${character.class}`)}${warningText}`
+      const marker = CLASS_MARKERS[character.class] ? `${CLASS_MARKERS[character.class]} ` : ''
+      return `- ${marker}${escapeDiscord(character.name)} (${escapeDiscord(member.name)}) · ${escapeDiscord(`${character.spec} ${character.class}`)}${warningText}`
     })
     return [
       `**${ROLE_HEADINGS[role]} (${entries.length}/${(plan.targets ?? settings.targets)[i]})**`,
