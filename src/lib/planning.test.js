@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { backups, conflicts } from './engine.js'
 import { getWeek, setCurrentWeek, setPlan } from './model.js'
 import {
   applySettings,
@@ -7,6 +8,7 @@ import {
   plannerContext,
   rankSuggestions,
   readyRoleCounts,
+  retimeTeam,
   rebuildTeam,
   toggleLock,
   topDistinctDays,
@@ -54,6 +56,45 @@ describe('readyRoleCounts', () => {
     const tank = plan.team.find((e) => e.role === 'Tank')
     const team = plan.team.map((e) => (e === tank ? { ...e, role: 'DPS' } : e))
     expect(readyRoleCounts(team, players, plan)).toEqual([1, 4, 14])
+  })
+})
+
+describe('retimeTeam', () => {
+  /** The seed roster, with its first tank no longer free for the session. */
+  function withTankGone() {
+    const { plan, players, windows } = plannerContext(createSeedState())
+    const gone = plan.team.find((e) => e.role === 'Tank')
+    const changed = players.map((p) => (p.id === gone.memberId ? { ...p, ranges: [] } : p))
+    return { plan, players: changed, windows, gone }
+  }
+
+  test('keeps everyone who can still come and replaces only who cannot', () => {
+    const { plan, players, gone } = withTankGone()
+    const { team, replaced } = retimeTeam(players, plan, [2, 4, 14], plan.team, [])
+
+    expect(replaced).toBe(1)
+    expect(team.some((e) => e.memberId === gone.memberId)).toBe(false)
+    const stayed = plan.team.filter((e) => e !== gone)
+    expect(stayed.every((e) => team.includes(e))).toBe(true)
+    const spareTanks = backups(players, plan, stayed)[0]
+    expect(team.filter((e) => e.role === 'Tank')).toHaveLength(Math.min(2, 1 + spareTanks))
+    expect(team.every((e) => conflicts(e, players, plan).length === 0)).toBe(true)
+  })
+
+  test('a locked player stays even when they cannot make the new time', () => {
+    const { plan, players, gone } = withTankGone()
+    const { team, replaced } = retimeTeam(players, plan, [2, 4, 14], plan.team, [gone.memberId])
+    expect(replaced).toBe(0)
+    expect(team).toContainEqual(gone)
+  })
+
+  test('a time nobody can make leaves only the locked players', () => {
+    const { plan, players, windows } = plannerContext(createSeedState())
+    const monday = windows.find((w) => w.day === 0 && w.startSlot === 0)
+    const keep = plan.team[0]
+    const { team, replaced } = retimeTeam(players, monday, [2, 4, 14], plan.team, [keep.memberId])
+    expect(team).toEqual([keep])
+    expect(replaced).toBe(plan.team.length - 1)
   })
 })
 

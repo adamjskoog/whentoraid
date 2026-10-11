@@ -47,7 +47,7 @@
   </div>
   <p class="note">
     {problemCount
-      ? 'Your roster is kept when you change times. Highlighted players cannot attend the full session.'
+      ? 'Locked players stay when you change times. Highlighted players cannot attend the full session.'
       : 'Move a player between roles or bring an alt. The planner checks every change.'}
   </p>
 </section>

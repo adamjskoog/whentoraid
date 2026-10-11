@@ -5,6 +5,7 @@ import { getWeek, setPlan } from '../lib/model.js'
 import { plannerContext } from '../lib/planning.js'
 import { createSeedState, SEED_WEEK } from '../lib/seed.js'
 import { addDays } from '../lib/time.js'
+import { toast } from '../lib/toast.svelte.js'
 import Planner from './Planner.svelte'
 
 const savedPlan = () => getWeek(app.data, SEED_WEEK).plan
@@ -42,6 +43,27 @@ describe('Planner locks', () => {
     render(Planner)
     const top = screen.getAllByRole('button').find((b) => b.textContent.includes('TOP SUGGESTION'))
     expect(top.textContent).toMatch(/Backups: \d+ T · \d+ H · \d+ D/)
+  })
+})
+
+describe('Planner moving the session', () => {
+  beforeEach(() => {
+    app.data = createSeedState()
+  })
+
+  test('players who cannot make the new time are benched, locked players stay, and Undo restores', async () => {
+    const { container } = render(Planner)
+    await fireEvent.click(screen.getByRole('button', { name: 'Lock Frostbyte' }))
+    const before = savedPlan().team
+
+    // Monday at the first slot: nobody in the seed guild is free.
+    await fireEvent.click(container.querySelector('.cell[data-day="0"][data-slot="0"]'))
+    expect(savedPlan().team.map((e) => e.memberId)).toEqual(['m6'])
+    expect(savedPlan().locked).toEqual(['m6'])
+    expect(toast.message).toMatch(/^19 players who can’t make this time moved to the bench/)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Undo roster change' }))
+    expect(savedPlan().team).toEqual(before)
   })
 })
 
