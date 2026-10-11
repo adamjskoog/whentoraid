@@ -45,8 +45,10 @@ jobs:
               -H "apikey: $SUPABASE_KEY" \
               -H "Accept: application/json" \
               "$SUPABASE_URL/rest/v1/rpc/app_schema_version")
-            if [[ "$version" != '"20261010160000"' ]]; then
-              echo "Hosted Supabase schema is $version; apply the latest migration before deploying."
+            # The newest migration's timestamp; src/lib/schema-version.test.js keeps the function in step.
+            expected=$(ls supabase/migrations/*.sql | sort | tail -n 1 | xargs basename | cut -d_ -f1)
+            if [[ "$version" != "\"$expected\"" ]]; then
+              echo "Hosted Supabase schema is $version, expected \"$expected\"; apply the latest migration before deploying."
               exit 1
             fi
           fi

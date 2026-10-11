@@ -148,13 +148,29 @@ describe('online guilds against a local Supabase', () => {
     const theirs = state.members[2].id
     const shadow = stateToRows(state, guildId)
 
-    const checkedIn = setSlotAvailable(state, THIS_WEEK, mine, { start: 1e12, end: 1e12 + 1800000 }, true)
+    // Next week's check-in deadline is always ahead; this week's may already have passed.
+    const nextWeek = addDays(THIS_WEEK, 7)
+    const checkedIn = setSlotAvailable(state, nextWeek, mine, { start: 1e12, end: 1e12 + 1800000 }, true)
     await save(player, guildId, shadow, stateToRows(checkedIn, guildId))
     const reloaded = rowsToState(await fetchGuild(player, guildId, SINCE), state)
-    expect(reloaded.weeks[THIS_WEEK].checkins[mine]).toEqual(checkedIn.weeks[THIS_WEEK].checkins[mine])
+    expect(reloaded.weeks[nextWeek].checkins[mine]).toEqual(checkedIn.weeks[nextWeek].checkins[mine])
 
-    const meddling = markUnavailable(state, THIS_WEEK, theirs)
+    const meddling = markUnavailable(state, nextWeek, theirs)
     await expect(save(player, guildId, shadow, stateToRows(meddling, guildId))).rejects.toThrow(/permission/)
+  })
+
+  test('after the deadline only officers change a week’s check-ins', async () => {
+    const lastWeek = addDays(THIS_WEEK, -7)
+    const mine = state.members[1].id
+    const current = rowsToState(await fetchGuild(officer, guildId, SINCE), state)
+    const late = markUnavailable(current, lastWeek, mine)
+    const before = stateToRows(current, guildId)
+    await expect(save(player, guildId, before, stateToRows(late, guildId))).rejects.toThrow(
+      /closed at the deadline/,
+    )
+    await save(officer, guildId, before, stateToRows(late, guildId))
+    const reloaded = rowsToState(await fetchGuild(player, guildId, SINCE), state)
+    expect(reloaded.weeks[lastWeek].checkins[mine].ranges).toEqual([])
   })
 
   test('a player deletes their own character even when it is on a roster', async () => {

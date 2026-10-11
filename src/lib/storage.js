@@ -1,4 +1,5 @@
 import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
+import { isSafeId } from './ids.js'
 import { STATE_VERSION } from './model.js'
 import { isIsoDate, isValidTimeZone } from './time.js'
 import { DEFAULT_RAID_ID, defaultRaids, validateRaid } from './raids.js'
@@ -69,6 +70,87 @@ export function migrateState(value) {
   return state
 }
 
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+const isStringList = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string')
+const isRange = (range) =>
+  isObject(range) && Number.isFinite(range.start) && Number.isFinite(range.end) && range.start < range.end
+
+const isMember = (member) => isObject(member) && isSafeId(member.id) && typeof member.name === 'string'
+
+function isCharacter(character, memberIds) {
+  return (
+    isObject(character) &&
+    isSafeId(character.id) &&
+    memberIds.has(character.memberId) &&
+    ['name', 'realm', 'spec', 'class', 'role'].every((key) => typeof character[key] === 'string')
+  )
+}
+
+function isCheckin(checkin) {
+  return (
+    isObject(checkin) &&
+    Array.isArray(checkin.ranges) &&
+    checkin.ranges.every(isRange) &&
+    isStringList(checkin.declined) &&
+    (checkin.raids === undefined ||
+      (isObject(checkin.raids) &&
+        Object.entries(checkin.raids).every(
+          ([raidId, choice]) => isSafeId(raidId) && isObject(choice) && isStringList(choice.declined),
+        )))
+  )
+}
+
+function isPlan(plan) {
+  return (
+    isObject(plan) &&
+    Number.isFinite(plan.start) &&
+    Array.isArray(plan.team) &&
+    plan.team.every((entry) => isObject(entry) && isSafeId(entry.memberId) && isSafeId(entry.characterId)) &&
+    (plan.locked === undefined || isStringList(plan.locked)) &&
+    (plan.attendance === undefined || plan.attendance === null || isObject(plan.attendance))
+  )
+}
+
+function isWeek([weekIso, week]) {
+  return (
+    isIsoDate(weekIso) &&
+    isObject(week) &&
+    isObject(week.checkins) &&
+    Object.entries(week.checkins).every(([memberId, checkin]) => isSafeId(memberId) && isCheckin(checkin)) &&
+    isObject(week.plans) &&
+    Object.entries(week.plans).every(([raidId, plan]) => isSafeId(raidId) && isPlan(plan))
+  )
+}
+
+const isTemplate = (template) =>
+  isObject(template) &&
+  isIsoDate(template.fromWeek) &&
+  Array.isArray(template.slots) &&
+  template.slots.every(Number.isInteger)
+
+function hasValidRecords(value) {
+  const memberIds = new Set(value.members.map((m) => m?.id))
+  return (
+    value.members.every(isMember) &&
+    memberIds.size === value.members.length &&
+    value.characters.every((c) => isCharacter(c, memberIds)) &&
+    isObject(value.weeks) &&
+    Object.entries(value.weeks).every(isWeek) &&
+    (value.templates === undefined ||
+      (isObject(value.templates) &&
+        Object.entries(value.templates).every(
+          ([memberId, template]) =>
+            isSafeId(memberId) &&
+            isTemplate(template) &&
+            (template.previous === undefined || isTemplate(template.previous)),
+        )))
+  )
+}
+
+/**
+ * Whether a parsed guild is safe to load. Backups and other tabs' saves are untrusted: a malformed
+ * record would otherwise break pages later, when it is first rendered.
+ */
 function isValidState(value) {
   return (
     value !== null &&
@@ -87,14 +169,12 @@ function isValidState(value) {
     value.settings.raids.length > 0 &&
     value.settings.raids.length <= 10 &&
     value.settings.raids.every(
-      (r) => typeof r?.id === 'string' && /^[a-z0-9-]{1,64}$/.test(r.id) && !validateRaid(r),
+      (r) =>
+        typeof r?.id === 'string' && /^[a-z0-9-]{1,64}$/.test(r.id) && isSafeId(r.id) && !validateRaid(r),
     ) &&
     new Set(value.settings.raids.map((r) => r.id)).size === value.settings.raids.length &&
     value.settings.raids.some((r) => r.id === value.currentRaidId) &&
-    value.weeks !== null &&
-    Object.values(value.weeks).every(
-      (week) => week?.checkins && week?.plans && typeof week.plans === 'object',
-    )
+    hasValidRecords(value)
   )
 }
 
