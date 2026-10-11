@@ -1,0 +1,38 @@
+-- Emergency compatibility rollback for the atomic-write release.
+-- Run only with the previous frontend restored or while coordinating that rollback.
+-- Legacy table writes remain authorized by the existing RLS policies, and each write
+-- advances the guild revision so newer clients reject stale snapshots.
+create or replace function public.bump_guild_revision_for_legacy_write() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  changed_guild_id uuid;
+begin
+  if current_setting('whentoraid.atomic_write', true) = 'on' then return null; end if;
+  if tg_table_name = 'guilds' then
+    changed_guild_id := case when tg_op = 'DELETE' then old.id else new.id end;
+  else
+    changed_guild_id := case when tg_op = 'DELETE' then old.guild_id else new.guild_id end;
+  end if;
+  update public.guild_revisions set revision = revision + 1 where guild_id = changed_guild_id;
+  return null;
+end $$;
+revoke execute on function public.bump_guild_revision_for_legacy_write() from public, anon, authenticated;
+
+create trigger guilds_legacy_revision after update or delete on public.guilds
+  for each row execute function public.bump_guild_revision_for_legacy_write();
+create trigger members_legacy_revision after insert or update or delete on public.members
+  for each row execute function public.bump_guild_revision_for_legacy_write();
+create trigger characters_legacy_revision after insert or update or delete on public.characters
+  for each row execute function public.bump_guild_revision_for_legacy_write();
+create trigger templates_legacy_revision after insert or update or delete on public.availability_templates
+  for each row execute function public.bump_guild_revision_for_legacy_write();
+create trigger checkins_legacy_revision after insert or update or delete on public.checkins
+  for each row execute function public.bump_guild_revision_for_legacy_write();
+create trigger plans_legacy_revision after insert or update or delete on public.plans
+  for each row execute function public.bump_guild_revision_for_legacy_write();
+
+grant insert, update, delete on public.members, public.characters,
+  public.availability_templates, public.checkins, public.plans to authenticated;
+grant delete on public.guilds to authenticated;
+grant update (name, timezone, day_start_hour, slots_per_day, settings, discord_server_id, officer_role_ids)
+  on public.guilds to authenticated;

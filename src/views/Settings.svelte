@@ -170,8 +170,8 @@
 
   <h2>Discord access</h2>
   <p>
-    Connection not configured. These fields save configuration notes only; this preview does not authenticate
-    users.
+    These IDs are notes for future Discord role syncing. Online access currently uses the Discord ID saved on
+    each guild member and the officer setting in this app.
   </p>
   <div class="settings-grid">
     <label class="field">
@@ -194,10 +194,7 @@
       />
     </label>
   </div>
-  <p class="note">
-    The live service must verify server membership and officer roles on the server. A Discord display tag is
-    not a reliable access rule.
-  </p>
+  <p class="note">Changing these IDs does not change who can access this guild.</p>
   <button class="primary form-actions">Save settings</button>
 </form>
 

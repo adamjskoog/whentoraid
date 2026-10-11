@@ -1,0 +1,13 @@
+-- Re-enable RPC-only writes after the previous frontend has been retired.
+revoke insert, update, delete on public.guilds, public.members, public.characters,
+  public.availability_templates, public.checkins, public.plans from authenticated;
+revoke update (name, timezone, day_start_hour, slots_per_day, settings, discord_server_id, officer_role_ids)
+  on public.guilds from authenticated;
+
+drop trigger if exists guilds_legacy_revision on public.guilds;
+drop trigger if exists members_legacy_revision on public.members;
+drop trigger if exists characters_legacy_revision on public.characters;
+drop trigger if exists templates_legacy_revision on public.availability_templates;
+drop trigger if exists checkins_legacy_revision on public.checkins;
+drop trigger if exists plans_legacy_revision on public.plans;
+drop function if exists public.bump_guild_revision_for_legacy_write();

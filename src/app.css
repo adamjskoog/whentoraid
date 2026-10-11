@@ -208,6 +208,16 @@ header {
   max-width: 1700px;
   margin: auto;
 }
+.unsaved-notice {
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+  background: #34221e;
+}
+.unsaved-notice p {
+  margin: 8px 0 14px;
+}
 .title-row {
   display: flex;
   justify-content: space-between;
