@@ -16,6 +16,19 @@ export const CLASS_COLORS = {
 
 export const CLASS_NAMES = Object.keys(CLASS_COLORS)
 
+/** Classic Era talent trees, three per class, in the in-game order. */
+export const CLASS_SPECS = {
+  Warrior: ['Arms', 'Fury', 'Protection'],
+  Paladin: ['Holy', 'Protection', 'Retribution'],
+  Hunter: ['Beast Mastery', 'Marksmanship', 'Survival'],
+  Rogue: ['Assassination', 'Combat', 'Subtlety'],
+  Priest: ['Discipline', 'Holy', 'Shadow'],
+  Shaman: ['Elemental', 'Enhancement', 'Restoration'],
+  Mage: ['Arcane', 'Fire', 'Frost'],
+  Warlock: ['Affliction', 'Demonology', 'Destruction'],
+  Druid: ['Balance', 'Feral Combat', 'Restoration'],
+}
+
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export const SLOT_MINUTES = 30

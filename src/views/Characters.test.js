@@ -28,6 +28,32 @@ describe('Characters view', () => {
     expect(after.find((c) => c.id === 'c0a').name).toBe('Stonewall')
   })
 
+  test('the specialization list follows the chosen class', async () => {
+    render(Characters)
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Edit character' })[0])
+    const spec = screen.getByLabelText('Specialization')
+    const options = () => [...spec.options].filter((o) => !o.disabled).map((o) => o.value)
+    expect(spec.value).toBe('Protection')
+    expect(options()).toEqual(['Arms', 'Fury', 'Protection'])
+
+    await fireEvent.change(screen.getByLabelText('Class'), { target: { value: 'Druid' } })
+    expect(options()).toEqual(['Balance', 'Feral Combat', 'Restoration'])
+    expect(spec.value).toBe('')
+  })
+
+  test('a spec typed before the dropdown existed stays until it is changed', async () => {
+    app.data = {
+      ...app.data,
+      characters: app.data.characters.map((c) => (c.id === 'c0a' ? { ...c, spec: 'Deep Prot' } : c)),
+    }
+    render(Characters)
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Edit character' })[0])
+    expect(screen.getByLabelText('Specialization').value).toBe('Deep Prot')
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save character' }))
+    expect(charactersOf(app.data, 'm0').find((c) => c.id === 'c0a').spec).toBe('Deep Prot')
+  })
+
   test('"Make main" swaps which character is the main', async () => {
     render(Characters)
     await fireEvent.click(screen.getByRole('button', { name: 'Make main' }))
@@ -51,7 +77,8 @@ describe('Characters view', () => {
 
     await fireEvent.input(screen.getByLabelText('Character name'), { target: { value: 'Newblade' } })
     await fireEvent.input(screen.getByLabelText('Realm'), { target: { value: 'Whitemane' } })
-    await fireEvent.input(screen.getByLabelText('Specialization'), { target: { value: 'Combat' } })
+    await fireEvent.change(screen.getByLabelText('Class'), { target: { value: 'Rogue' } })
+    await fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Combat' } })
     await fireEvent.click(screen.getByRole('button', { name: 'Save character' }))
 
     const names = charactersOf(app.data, 'm0').map((c) => c.name)

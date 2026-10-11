@@ -40,6 +40,7 @@ export function stateToRows(state, guildId) {
         settings: {
           raids: settings.raids,
           checkinDeadline: settings.checkinDeadline ?? null,
+          trackAttendance: settings.trackAttendance === true,
           ...(state.demoYear ? { demoYear: state.demoYear } : {}),
         },
         discord_server_id: guild.discordServerId ?? '',
@@ -155,6 +156,7 @@ export function rowsToState(rows, viewer) {
     settings: {
       raids,
       checkinDeadline: guild.settings.checkinDeadline ?? null,
+      trackAttendance: guild.settings.trackAttendance === true,
     },
     members,
     templates: Object.fromEntries(

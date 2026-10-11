@@ -5,7 +5,7 @@
   import { attendanceRecord, formatRecord, RECORD_LOOKBACK_WEEKS } from '../lib/attendance.js'
   import { CLASS_COLORS } from '../lib/constants.js'
   import { setCurrentMember } from '../lib/members.js'
-  import { charactersOf, getCheckin, memberById } from '../lib/model.js'
+  import { charactersOf, getCheckin, memberById, tracksAttendance } from '../lib/model.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import { showToast } from '../lib/toast.svelte.js'
 
@@ -14,6 +14,7 @@
   const editingMember = $derived(editing?.memberId ? memberById(app.data, editing.memberId) : null)
 
   const weekIso = $derived(app.data.currentWeek)
+  const showAttendance = $derived(tracksAttendance(app.data))
   const rows = $derived(
     app.data.members.map((member) => {
       const mine = charactersOf(app.data, member.id)
@@ -58,7 +59,7 @@
         <th scope="col">Player</th>
         <th scope="col">Main character</th>
         <th scope="col">This week</th>
-        <th scope="col">Attendance (last {RECORD_LOOKBACK_WEEKS} weeks)</th>
+        {#if showAttendance}<th scope="col">Attendance (last {RECORD_LOOKBACK_WEEKS} weeks)</th>{/if}
         <th scope="col"><span class="visually-hidden">Actions</span></th>
       </tr>
     </thead>
@@ -82,7 +83,7 @@
             {/if}
           </td>
           <td data-label="This week"><span class={status.tone}>{status.label}</span></td>
-          <td data-label="Attendance">{record ?? '—'}</td>
+          {#if showAttendance}<td data-label="Attendance">{record ?? '—'}</td>{/if}
           <td class="row-actions">
             {#if canManage()}
               <button disabled={isMe} onclick={() => actAs(member)}>{isMe ? 'Acting as' : 'Act as'}</button>

@@ -5,10 +5,10 @@
   import CollapsibleSection from './CollapsibleSection.svelte'
 
   /**
-   * After the raid: record who attended, was late, or did not show, or mark the raid cancelled.
+   * After the raid: record who attended, was late, or did not show. A cancelled raid has nothing to record.
    * `onmark(memberId, status | null)` clicking the pressed status again clears it.
    */
-  let { team, attendance = {}, cancelled = false, onmark, oncancelled } = $props()
+  let { team, attendance = {}, cancelled = false, onmark } = $props()
 
   const recorded = $derived(team.filter((e) => attendance[e.memberId]).length)
 </script>
@@ -24,10 +24,6 @@
             : `${recorded} of ${team.length} recorded. Attendance feeds each player’s record on Guild members.`}
         </small>
       </div>
-      <label class="checkbox-row">
-        <input type="checkbox" checked={cancelled} onchange={(e) => oncancelled(e.currentTarget.checked)} />
-        Raid was cancelled
-      </label>
     </div>
     {#if !cancelled}
       <ul class="attendance-list">

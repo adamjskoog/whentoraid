@@ -6,6 +6,7 @@ import {
   placeInRoster,
   plannerContext,
   rankSuggestions,
+  readyRoleCounts,
   rebuildTeam,
   toggleLock,
   topDistinctDays,
@@ -35,6 +36,24 @@ describe('plannerContext', () => {
     const picked = topDistinctDays(suggestions, 3)
     expect(picked).toHaveLength(3)
     expect(new Set(picked.map((s) => s.day)).size).toBe(3)
+  })
+})
+
+describe('readyRoleCounts', () => {
+  test('a roster kept after moving to a time almost nobody can make counts only who can come', () => {
+    const { plan, players, windows } = plannerContext(createSeedState())
+    expect(readyRoleCounts(plan.team, players, plan)).toEqual([2, 4, 14])
+
+    // Monday at the first slot: the seed guild's evenings start later, so nobody is free.
+    const monday = windows.find((w) => w.day === 0 && w.startSlot === 0)
+    expect(readyRoleCounts(plan.team, players, monday)).toEqual([0, 0, 0])
+  })
+
+  test('a player on a character in another role does not fill that slot', () => {
+    const { plan, players } = plannerContext(createSeedState())
+    const tank = plan.team.find((e) => e.role === 'Tank')
+    const team = plan.team.map((e) => (e === tank ? { ...e, role: 'DPS' } : e))
+    expect(readyRoleCounts(team, players, plan)).toEqual([1, 4, 14])
   })
 })
 

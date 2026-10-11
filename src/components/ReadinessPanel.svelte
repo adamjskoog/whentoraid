@@ -2,10 +2,14 @@
   import { app } from '../lib/app.svelte.js'
   import { ROLES } from '../lib/constants.js'
 
-  /** Sidebar checklist for the chosen session, plus composition notes. */
+  /**
+   * Sidebar checklist for the chosen session, plus composition notes. Role slots count `readyCounts`,
+   * the rostered players who can play this session; `roleCounts` is everyone rostered.
+   */
   let {
     sessionLabel,
     roleCounts,
+    readyCounts,
     targets,
     availableCount,
     backupsLabel,
@@ -21,10 +25,14 @@
   <h2 class="readiness-heading">A party with a plan.</h2>
   <p>{sessionLabel}</p>
   {#each ROLES as role, i (role)}
-    {@const full = roleCounts[i] === targets[i]}
+    {@const full = readyCounts[i] >= targets[i]}
+    {@const cannotCome = roleCounts[i] - readyCounts[i]}
     <div class="check">
-      <span>{role} slots</span>
-      <span class={full ? 'ok' : 'gold'}>{roleCounts[i]} / {targets[i]} {full ? '✓' : ''}</span>
+      <span>
+        {role} slots
+        {#if cannotCome > 0}<small class="warning">{cannotCome} rostered can’t play</small>{/if}
+      </span>
+      <span class={full ? 'ok' : 'gold'}>{readyCounts[i]} / {targets[i]} {full ? '✓' : ''}</span>
     </div>
   {/each}
   <div class="check"><span>Available players</span><span>{availableCount}</span></div>
