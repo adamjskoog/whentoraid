@@ -65,7 +65,7 @@ const CHARACTER_NAMES = [
 
 const ARCHETYPES = [
   ['Warrior', 'Protection', 'Tank'],
-  ['Druid', 'Feral', 'Tank'],
+  ['Druid', 'Feral Combat', 'Tank'],
   ['Priest', 'Holy', 'Healer'],
   ['Paladin', 'Holy', 'Healer'],
   ['Shaman', 'Restoration', 'Healer'],
@@ -157,6 +157,7 @@ export function createSeedState() {
     settings: {
       raids: defaultRaids(DEFAULT_TARGETS, DEFAULT_DURATION_SLOTS),
       checkinDeadline: { ...DEFAULT_CHECKIN_DEADLINE },
+      trackAttendance: false,
     },
     members,
     templates: {},

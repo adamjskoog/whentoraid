@@ -42,6 +42,7 @@ export function createGuildState(input, { now = Date.now(), makeId } = {}) {
     settings: {
       raids: defaultRaids(),
       checkinDeadline: { ...DEFAULT_CHECKIN_DEADLINE },
+      trackAttendance: false,
     },
     members: [],
     templates: {},

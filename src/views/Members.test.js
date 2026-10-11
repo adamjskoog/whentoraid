@@ -5,6 +5,10 @@ import { charactersOf } from '../lib/model.js'
 import { createSeedState } from '../lib/seed.js'
 import Members from './Members.svelte'
 
+async function choose(label, value) {
+  await fireEvent.change(screen.getByLabelText(label), { target: { value } })
+}
+
 async function fill(label, value) {
   await fireEvent.input(screen.getByLabelText(label), { target: { value } })
 }
@@ -20,7 +24,8 @@ describe('Guild members', () => {
     await fill('Player name', 'Nova')
     await fill('Character name', 'Starfall')
     await fill('Realm', 'Whitemane')
-    await fill('Specialization', 'Arcane')
+    await choose('Class', 'Mage')
+    await choose('Specialization', 'Arcane')
     await fireEvent.click(screen.getByRole('button', { name: 'Add player' }))
 
     const nova = app.data.members.find((m) => m.name === 'Nova')

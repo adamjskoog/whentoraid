@@ -1,7 +1,7 @@
 <script>
   import { app } from '../lib/app.svelte.js'
   import { attendanceRecord, formatRecord, RECORD_LOOKBACK_WEEKS } from '../lib/attendance.js'
-  import { charactersOf, getCheckin, isOffered, memberById } from '../lib/model.js'
+  import { charactersOf, getCheckin, isOffered, memberById, tracksAttendance } from '../lib/model.js'
   import Modal from './Modal.svelte'
   import { rosterExplanation } from '../lib/raid-workflow.js'
 
@@ -20,7 +20,9 @@
   {#if member}
     <h2>{member.name}’s characters</h2>
     <p>Switch characters or adjust this player’s role.</p>
-    <small>Attendance, last {RECORD_LOOKBACK_WEEKS} weeks: {record ?? 'nothing recorded yet'}</small>
+    {#if tracksAttendance(app.data)}
+      <small>Attendance, last {RECORD_LOOKBACK_WEEKS} weeks: {record ?? 'nothing recorded yet'}</small>
+    {/if}
     {#if plan}
       <h3>Why this roster?</h3>
       <ul>

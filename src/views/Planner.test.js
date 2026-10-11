@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { app } from '../lib/app.svelte.js'
-import { getWeek } from '../lib/model.js'
+import { getWeek, setPlan } from '../lib/model.js'
+import { plannerContext } from '../lib/planning.js'
 import { createSeedState, SEED_WEEK } from '../lib/seed.js'
 import { addDays } from '../lib/time.js'
 import Planner from './Planner.svelte'
@@ -44,9 +45,31 @@ describe('Planner locks', () => {
   })
 })
 
-describe('Planner after the raid', () => {
+describe('Planner readiness', () => {
   beforeEach(() => {
     app.data = createSeedState()
+  })
+
+  test('role slots count only rostered players who can make the chosen time', () => {
+    const { plan, windows } = plannerContext(app.data)
+    // Keep the full Friday roster but move it to Monday noon, which nobody in the seed guild can make.
+    const monday = windows.find((w) => w.day === 0 && w.startSlot === 0)
+    app.data = setPlan(app.data, SEED_WEEK, { start: monday.start, team: plan.team })
+    render(Planner)
+
+    const readiness = screen.getByText('RAID READINESS').closest('section')
+    const tanks = within(readiness)
+      .getByText(/Tank slots/)
+      .closest('.check')
+    expect(tanks.textContent).toContain('0 / 2')
+    expect(tanks.textContent).toMatch(/2 rostered can’t play/)
+  })
+})
+
+describe('Planner after the raid', () => {
+  beforeEach(() => {
+    const seed = createSeedState()
+    app.data = { ...seed, settings: { ...seed.settings, trackAttendance: true } }
   })
 
   test('marking attendance saves the suggested roster and records the status', async () => {
@@ -66,6 +89,22 @@ describe('Planner after the raid', () => {
     await fireEvent.click(screen.getByRole('checkbox', { name: 'Raid was cancelled' }))
     expect(savedPlan().cancelled).toBe(true)
     expect(screen.queryByRole('group', { name: 'Attendance for Stoneguard' })).toBeNull()
+  })
+})
+
+describe('Planner without attendance tracking', () => {
+  beforeEach(() => {
+    app.data = createSeedState()
+  })
+
+  test('attendance is off by default, and a raid can still be marked cancelled', async () => {
+    render(Planner)
+    expect(screen.queryByRole('group', { name: 'Attendance for Stoneguard' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'After the raid' })).toBeNull()
+
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Raid was cancelled' }))
+    expect(savedPlan().cancelled).toBe(true)
+    expect(screen.getByText('This raid is cancelled.')).toBeTruthy()
   })
 })
 

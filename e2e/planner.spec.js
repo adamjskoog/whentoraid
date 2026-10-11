@@ -25,6 +25,11 @@ test('the demo week suggests a full raid and groups the bench', async ({ page })
 })
 
 test('record attendance after the raid', async ({ page }) => {
+  await expect(page.getByText(/After the raid/)).toHaveCount(0)
+  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await page.getByRole('checkbox', { name: 'Track attendance after each raid' }).check()
+  await page.getByRole('button', { name: 'Save settings' }).click()
+
   await expand(page, 'After the raid')
   const group = page.getByRole('group', { name: 'Attendance for Stoneguard' })
   await group.getByRole('button', { name: 'Late' }).click()

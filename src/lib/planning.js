@@ -1,5 +1,5 @@
 import { ROLES, SLOT_MINUTES } from './constants.js'
-import { backups, compose, isAvailable } from './engine.js'
+import { backups, compose, conflicts, isAvailable } from './engine.js'
 import { clampStartSlot, sessionWindows, slotWindow } from './grid.js'
 import { enginePlayers, getWeek, saveSettings, setPlan } from './model.js'
 import { addDays } from './time.js'
@@ -168,6 +168,16 @@ export function missingRoles(team, targets) {
     role,
     missing: targets[i] - team.filter((e) => e.role === role).length,
   })).filter((m) => m.missing > 0)
+}
+
+/**
+ * Roster entries per role (in ROLES order) that can really play the session: free for all of it,
+ * on an offered character, in that character's role. A roster kept after moving to another time
+ * can still hold players who cannot make the new one.
+ */
+export function readyRoleCounts(team, players, window) {
+  const ready = team.filter((e) => conflicts(e, players, window).length === 0)
+  return ROLES.map((role) => ready.filter((e) => e.role === role).length)
 }
 
 /** "Short 1 tank, 2 healers", or null when every slot is filled. */

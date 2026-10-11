@@ -55,6 +55,16 @@ describe('Guild settings: backup and start over', () => {
     expect(app.data).toBe(before)
   })
 
+  test('attendance tracking starts off and can be turned on', async () => {
+    render(App)
+    const toggle = screen.getByRole('checkbox', { name: 'Track attendance after each raid' })
+    expect(toggle.checked).toBe(false)
+
+    await fireEvent.click(toggle)
+    await fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+    expect(app.data.settings.trackAttendance).toBe(true)
+  })
+
   test('raid hours can run past midnight', async () => {
     render(App)
     await fireEvent.change(screen.getByLabelText('Raids can start from'), { target: { value: '20' } })

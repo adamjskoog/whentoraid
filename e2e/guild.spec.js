@@ -11,7 +11,7 @@ async function createGuild(page) {
   await page.getByLabel('Character name').fill('Firstlight')
   await page.getByLabel('Realm').fill('Whitemane')
   await page.getByLabel('Class').selectOption('Priest')
-  await page.getByLabel('Specialization').fill('Holy')
+  await page.getByLabel('Specialization').selectOption('Holy')
   await page.getByLabel('Raid role').selectOption('Healer')
   await page.getByRole('button', { name: 'Create guild' }).click()
   await expect(page.getByRole('heading', { name: 'Guild members' })).toBeVisible()
@@ -26,7 +26,7 @@ test('set up a guild, add a player, and check them in', async ({ page }) => {
   await dialog.getByLabel('Character name').fill('Starfall')
   await dialog.getByLabel('Realm').fill('Whitemane')
   await dialog.getByLabel('Class').selectOption('Mage')
-  await dialog.getByLabel('Specialization').fill('Frost')
+  await dialog.getByLabel('Specialization').selectOption('Frost')
   await dialog.getByRole('button', { name: 'Add player' }).click()
   await expect(page.getByRole('rowheader', { name: /Nova/ })).toBeVisible()
 

@@ -15,6 +15,7 @@
     timeInputToMinutes,
     timeZoneOptions,
   } from '../lib/guild.js'
+  import { tracksAttendance } from '../lib/model.js'
   import { applySettings } from '../lib/planning.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import { createDemoState } from '../lib/seed.js'
@@ -54,6 +55,7 @@
       checkinDeadline: hasDeadline
         ? { day: Number(form.get('deadlineDay')), minutes: timeInputToMinutes(form.get('deadlineTime')) }
         : null,
+      trackAttendance: form.get('trackAttendance') === 'on',
     })
     if (result.error) {
       showToast(result.error)
@@ -167,6 +169,16 @@
       </label>
     </div>
   {/if}
+
+  <h2>Attendance</h2>
+  <p>
+    Record who attended, was late, or did not show after each raid. Records appear on Guild members and in
+    each player’s roster details.
+  </p>
+  <label class="checkbox-row">
+    <input type="checkbox" name="trackAttendance" checked={tracksAttendance(app.data)} />
+    Track attendance after each raid
+  </label>
 
   <h2>Discord access</h2>
   <p>

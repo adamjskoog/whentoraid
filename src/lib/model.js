@@ -33,7 +33,7 @@ import { own } from './ids.js'
  *   currentRaidId: string,
  *   currentMemberId: string,
  *   guild: { name: string, timezone: string, dayStartHour: number, slotsPerDay: number, discordServerId: string, officerRoleIds: string },
- *   settings: { raids: { id: string, name: string, size: number, targets: number[], durationSlots: number }[], checkinDeadline: Deadline | null },
+ *   settings: { raids: { id: string, name: string, size: number, targets: number[], durationSlots: number }[], checkinDeadline: Deadline | null, trackAttendance?: boolean },
  *   members: Member[],
  *   characters: Character[],
  *   weeks: Record<string, Week>,
@@ -261,6 +261,11 @@ export function setPlan(state, weekIso, plan) {
   })
 }
 
+/** Attendance tracking is a guild setting, off unless an officer turns it on. */
+export function tracksAttendance(state) {
+  return state.settings.trackAttendance === true
+}
+
 export function setCurrentWeek(state, dateIso) {
   if (!isIsoDate(dateIso)) return state
   return { ...state, currentWeek: mondayOf(dateIso) }
@@ -363,7 +368,7 @@ export function preferredCharacter(state, weekIso, memberId) {
  * @typedef {{
  *   targets: number[], durationSlots: number, discordServerId: string, officerRoleIds: string,
  *   guildName: string, timezone: string, startHour: number, endHour: number,
- *   checkinDeadline: Deadline | null,
+ *   checkinDeadline: Deadline | null, trackAttendance: boolean,
  * }} SettingsInput
  */
 
@@ -383,6 +388,7 @@ function withCurrentSettings(state, input) {
     startHour,
     endHour,
     checkinDeadline: state.settings.checkinDeadline ?? null,
+    trackAttendance: tracksAttendance(state),
     ...input,
   }
 }
@@ -438,6 +444,7 @@ export function saveSettings(state, input) {
       settings: {
         raids,
         checkinDeadline: full.checkinDeadline && { ...full.checkinDeadline },
+        trackAttendance: full.trackAttendance === true,
       },
       guild: {
         ...state.guild,

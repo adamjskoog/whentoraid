@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import App from '../App.svelte'
 import { app } from '../lib/app.svelte.js'
 
+async function choose(label, value) {
+  await fireEvent.change(screen.getByLabelText(label), { target: { value } })
+}
+
 async function fill(label, value) {
   await fireEvent.input(screen.getByLabelText(label), { target: { value } })
 }
@@ -25,7 +29,8 @@ describe('first-run setup', () => {
     await fill('Your name', 'Sam')
     await fill('Character name', 'Firstlight')
     await fill('Realm', 'Whitemane')
-    await fill('Specialization', 'Holy')
+    await choose('Class', 'Priest')
+    await choose('Specialization', 'Holy')
     await fireEvent.click(screen.getByRole('button', { name: 'Create guild' }))
 
     expect(app.data.guild.name).toBe('Night Shift')
@@ -40,7 +45,8 @@ describe('first-run setup', () => {
     await fill('Your name', 'Sam')
     await fill('Character name', 'Firstlight')
     await fill('Realm', 'Whitemane')
-    await fill('Specialization', 'Holy')
+    await choose('Class', 'Priest')
+    await choose('Specialization', 'Holy')
     await fill('Discord user ID (optional)', '12')
     await fireEvent.click(screen.getByRole('button', { name: 'Create guild' }))
     expect(screen.getByRole('alert').textContent).toMatch(/17–20 digits/)

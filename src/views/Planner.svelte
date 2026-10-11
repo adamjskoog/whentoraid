@@ -29,13 +29,14 @@
   import { backups, conflicts, isAvailable } from '../lib/engine.js'
   import { displayZone } from '../lib/display.svelte.js'
   import { clampStartSlot, formatSessionIn, slotWindow } from '../lib/grid.js'
-  import { characterById, getWeek, setPlan } from '../lib/model.js'
+  import { characterById, getWeek, setPlan, tracksAttendance } from '../lib/model.js'
   import { canManage } from '../lib/remote/sync.svelte.js'
   import {
     benchMember,
     formatBackups,
     placeInRoster,
     plannerContext,
+    readyRoleCounts,
     rebuildTeam,
     toggleLock,
     topDistinctDays,
@@ -115,6 +116,7 @@
 
   const totalSlots = $derived(settings.targets.reduce((sum, n) => sum + n, 0))
   const roleCounts = $derived(ROLES.map((role) => plan.team.filter((e) => e.role === role).length))
+  const readyCounts = $derived(readyRoleCounts(plan.team, players, plan))
   const checkedInCount = $derived(players.filter((p) => p.checkedIn).length)
   const availableCount = $derived(
     players.filter((p) => isAvailable(p, plan) && p.characters.some((c) => c.offered)).length,
@@ -271,6 +273,16 @@
       {#if published}<button onclick={withdraw}>Withdraw published roster</button>{/if}
     {/if}
   </div>
+  {#if canManage() && plan.team.length}
+    <label class="checkbox-row">
+      <input
+        type="checkbox"
+        checked={savedPlan?.cancelled ?? false}
+        onchange={(e) => markCancelled(e.currentTarget.checked)}
+      />
+      Raid was cancelled
+    </label>
+  {/if}
   <p role="status" class="note">
     {!published
       ? 'No published roster for this raid yet.'
@@ -382,13 +394,12 @@
         readonly={viewPublished}
       />
 
-      {#if plan.team.length && !viewPublished}
+      {#if plan.team.length && !viewPublished && tracksAttendance(app.data)}
         <AttendancePanel
           team={plan.team}
           attendance={savedPlan?.attendance ?? {}}
           cancelled={savedPlan?.cancelled ?? false}
           onmark={markAttendance}
-          oncancelled={markCancelled}
         />
       {/if}
     </div>
@@ -399,6 +410,7 @@
       <ReadinessPanel
         {sessionLabel}
         {roleCounts}
+        {readyCounts}
         targets={settings.targets}
         {availableCount}
         backupsLabel={formatBackups(planBackups)}
