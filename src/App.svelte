@@ -12,8 +12,10 @@
     reapplyUnsavedDraft,
     remote,
   } from './lib/remote/sync.svelte.js'
+  import { captureInvite, invite, loadInvite } from './lib/remote/invite.svelte.js'
   import { sameGuild, saveState, watchOtherTabs } from './lib/storage.js'
   import { showToast } from './lib/toast.svelte.js'
+  import JoinGuildDialog from './components/JoinGuildDialog.svelte'
   import Modal from './components/Modal.svelte'
   import OnlineAccount from './components/OnlineAccount.svelte'
   import Sidebar from './components/Sidebar.svelte'
@@ -83,6 +85,12 @@
   )
 
   $effect(() => initRemote())
+
+  // An invite link opens the join dialog; once signed in, look the invite up.
+  if (remote.enabled) captureInvite()
+  $effect(() => {
+    if (invite.code && invite.status === 'idle' && remote.ready && remote.signedIn) void loadInvite()
+  })
 
   /** Page changes add a history entry, so Back returns to the previous page; week changes replace it. */
   let lastView = app.view
@@ -187,6 +195,8 @@
 {/if}
 
 <Toast />
+
+<JoinGuildDialog />
 
 <Modal open={discordOpen} onclose={() => (discordOpen = false)}>
   <h2>{remote.guildId ? 'Online guild' : 'Connect your guild'}</h2>

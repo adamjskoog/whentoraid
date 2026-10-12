@@ -2,8 +2,13 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import {
   applyOps,
   createGuildWithRows,
+  createInvite,
+  currentInvite,
+  disableInvite,
   fetchGuild,
   getGuildDiscord,
+  inviteDetails,
+  joinGuild,
   listGuilds,
   myDiscordId,
   recordDiscordPost,
@@ -305,5 +310,39 @@ describe('online guilds against a local Supabase', () => {
     ).rejects.toMatchObject({ code: '42501' })
     // Players load the guild without ever receiving the webhook.
     expect(JSON.stringify(await fetchGuild(player, guildId, SINCE))).not.toContain('webhooks')
+  })
+
+  test('players join through the invite link: claiming a listed player, or as someone new', async () => {
+    const claimer = await signedInPlayer(discordId())
+    const newcomer = await signedInPlayer(discordId())
+    expect(await currentInvite(officer, guildId)).toBeNull()
+    await expect(createInvite(player, guildId)).rejects.toMatchObject({ code: '42501' })
+    const code = await createInvite(officer, guildId)
+
+    const offer = await inviteDetails(claimer, code)
+    const { guilds } = await fetchGuild(officer, guildId, SINCE)
+    expect(offer).toMatchObject({ guildId, guildName: guilds[0].name, alreadyMember: false })
+    const listed = state.members[2]
+    expect(offer.openPlayers).toContainEqual({ id: listed.id, name: listed.name })
+    expect(offer.openPlayers.map((p) => p.id)).not.toContain(state.members[1].id)
+    expect((await inviteDetails(player, code)).alreadyMember).toBe(true)
+
+    const { revision: beforeJoins } = await fetchGuild(officer, guildId, SINCE)
+    expect(await joinGuild(claimer, code, { memberId: listed.id })).toBe(guildId)
+    expect(await joinGuild(newcomer, code, { name: 'Wren' })).toBe(guildId)
+    const loaded = rowsToState(await fetchGuild(newcomer, guildId, SINCE), {
+      currentWeek: state.currentWeek,
+      currentMemberId: '',
+    })
+    expect(loaded.members.find((m) => m.id === listed.id).discordId).toBeTruthy()
+    expect(loaded.members.at(-1)).toMatchObject({ name: 'Wren', officer: false })
+
+    // A save from a window that loaded before the joins is refused, so it cannot undo them.
+    const memberRow = stateToRows(state, guildId).members[0]
+    await expect(
+      applyOps(officer, guildId, beforeJoins, [{ table: 'members', kind: 'upsert', rows: [memberRow] }]),
+    ).rejects.toMatchObject({ code: '40001' })
+    await disableInvite(officer, guildId)
+    await expect(inviteDetails(claimer, code)).rejects.toThrow(/no longer works/)
   })
 })

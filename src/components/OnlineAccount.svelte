@@ -46,7 +46,7 @@
   const moveOnline = () =>
     run(
       () => createOnlineGuild($state.snapshot(app.data)),
-      'Your guild is online. Invite players by adding their Discord IDs.',
+      'Your guild is online. Invite players with the invite link on Guild members.',
     )
 </script>
 
@@ -85,7 +85,8 @@
   <p>
     Signed in with Discord.
     {#if remote.discordId}
-      Your Discord ID is <code>{remote.discordId}</code>. Officers add it to a player to let you in.
+      Your Discord ID is <code>{remote.discordId}</code>. To join a guild, open its invite link, or give an
+      officer this ID.
     {/if}
   </p>
 
@@ -103,7 +104,9 @@
       {/each}
     </div>
   {:else}
-    <p class="note">No online guild lists you yet. Ask an officer to add your Discord ID, or create one.</p>
+    <p class="note">
+      No online guild lists you yet. Ask an officer for the guild’s invite link, or create one.
+    </p>
   {/if}
 
   <div class="buttons spaced-top">
