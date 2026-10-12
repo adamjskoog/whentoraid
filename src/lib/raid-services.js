@@ -95,3 +95,42 @@ export function responseSummary(team, byMember) {
   }
   return summary
 }
+
+// Online guilds only: Discord delivery, reminders and calendar feeds run on the server.
+
+export const getReminderSettings = (client, guildId) =>
+  rpc(client, 'get_raid_reminders', { p_guild_id: guildId })
+
+export const setReminderSettings = (client, guildId, settings) =>
+  rpc(client, 'set_raid_reminders', { p_guild_id: guildId, p_settings: settings })
+
+export const queueDiscordDelivery = (client, guildId, week, raidId, action = 'post') =>
+  rpc(client, 'queue_discord_delivery', {
+    p_guild_id: guildId,
+    p_week: week,
+    p_raid_id: raidId,
+    p_action: action,
+  })
+
+export const listDiscordDeliveries = (client, guildId, week, raidId) =>
+  rpc(client, 'get_discord_deliveries', { p_guild_id: guildId, p_week: week, p_raid_id: raidId })
+
+export const retryDiscordDelivery = (client, guildId, deliveryId) =>
+  rpc(client, 'retry_discord_delivery', { p_guild_id: guildId, p_id: deliveryId })
+
+/** Ask the worker to send now. If it is unavailable, queued messages wait for the next run. */
+export async function dispatchDiscordDeliveries(client, guildId) {
+  const { data, error } = await client.functions.invoke('raid-dispatch', { body: { guildId } })
+  if (error)
+    throw new Error('The message is queued but could not be sent yet. Try again shortly.', { cause: error })
+  return data?.results ?? []
+}
+
+export const createCalendarSubscription = (client, guildId) =>
+  rpc(client, 'create_raid_calendar', { p_guild_id: guildId })
+
+export const revokeCalendarSubscription = (client, guildId) =>
+  rpc(client, 'revoke_raid_calendar', { p_guild_id: guildId })
+
+export const calendarSubscriptionUrl = (baseUrl, token) =>
+  `${baseUrl.replace(/\/$/, '')}/functions/v1/raid-calendar?token=${encodeURIComponent(token)}`
