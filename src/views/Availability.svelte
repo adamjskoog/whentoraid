@@ -1,5 +1,8 @@
 <script>
   import AvailabilityGrid from '../components/AvailabilityGrid.svelte'
+  import AvailabilityRanges from '../components/AvailabilityRanges.svelte'
+  import InlineSaveStatus from '../components/InlineSaveStatus.svelte'
+  import OnboardingChecklist from '../components/OnboardingChecklist.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import WeekBar from '../components/WeekBar.svelte'
   import RaidSelector from '../components/RaidSelector.svelte'
@@ -8,14 +11,18 @@
   import { templateFor } from '../lib/availability-template.js'
   import { changesClosedWeek, checkinsClosed } from '../lib/checkins.js'
   import { own } from '../lib/ids.js'
+  import { stableJson } from '../lib/remote/rows.js'
   import { canManage } from '../lib/remote/sync.svelte.js'
   import { CLASS_COLORS } from '../lib/constants.js'
+  import { availabilitySource } from '../lib/personal-raids.js'
   import {
     charactersOf,
     getCheckin,
+    getWeek,
     isOfferingAny,
     isOffered,
     markUnavailable,
+    restoreCheckin,
     setCharacterOffered,
     setSlotAvailable,
     setRaidParticipation,
@@ -26,6 +33,8 @@
   import { showToast, offerUndo } from '../lib/toast.svelte.js'
 
   const memberId = $derived(app.data.currentMemberId)
+  let editor = $state(globalThis.matchMedia?.('(max-width: 600px)').matches ? 'ranges' : 'grid')
+  let beforeEdit = null
   const weekIso = $derived(app.data.currentWeek)
   const checkin = $derived(getCheckin(app.data, weekIso, memberId))
   const myCharacters = $derived(charactersOf(app.data, memberId))
@@ -79,7 +88,40 @@
   })
 
   function paint(interval, available) {
+    if (closed) return
     app.data = setSlotAvailable(app.data, weekIso, memberId, interval, available)
+  }
+
+  function beginEdit() {
+    beforeEdit = app.data
+  }
+
+  function endEdit() {
+    if (beforeEdit && beforeEdit !== app.data) offerCheckinUndo('Availability updated.', beforeEdit)
+    beforeEdit = null
+  }
+
+  /**
+   * Undo only this player's check-in for the week, so edits by other people that arrived
+   * meanwhile (in an online guild) are kept rather than blocking or being reverted.
+   */
+  function offerCheckinUndo(message, previous) {
+    const week = weekIso
+    const member = memberId
+    const saved = (state) => own(getWeek(state, week).checkins, member)
+    const before = saved(previous)
+    const after = saved(app.data)
+    showToast(message, {
+      label: 'Undo',
+      run: () => {
+        if (stableJson(saved(app.data)) !== stableJson(after)) {
+          showToast('Can’t undo: your availability has changed since.')
+          return
+        }
+        app.data = restoreCheckin(app.data, week, member, before)
+        showToast('Undone.')
+      },
+    })
   }
 
   function toggleOffered(characterId, offered) {
@@ -87,8 +129,10 @@
   }
 
   function cantMakeIt() {
+    if (closed) return
+    const previous = app.data
     app.data = markUnavailable(app.data, weekIso, memberId)
-    showToast('Marked as not available this week')
+    offerCheckinUndo('Marked as not available this week', previous)
   }
 </script>
 
@@ -100,6 +144,10 @@
 
 <WeekBar />
 
+{#if !myCharacters.length || !checkin.checkedIn}
+  <OnboardingChecklist {memberId} {weekIso} />
+{/if}
+
 {#if closed}
   <p class="note warning" role="status">
     Check-ins for this week closed at the deadline. Ask an officer if your times or characters need to change.
@@ -109,7 +157,13 @@
 <div class="availability-layout">
   <div class="panel" inert={closed}>
     <h2>Weekly availability</h2>
-    <p>These times apply to all three raids. Adjust any week without changing your usual schedule.</p>
+    <p>
+      These times apply to {app.data.settings.raids.length === 1
+        ? 'your raid'
+        : `all ${app.data.settings.raids.length} raids`}. Adjust any week without changing your usual
+      schedule.
+    </p>
+    <span class="badge">{availabilitySource(app.data, weekIso, memberId)}</span>
     <div class="buttons">
       <button onclick={() => changeTemplate('save')}>Save as usual schedule</button>
       {#if template}
@@ -126,15 +180,42 @@
           : 'Saved weekly check-ins override it.'}
       </p>
     {/if}
-    <AvailabilityGrid {weekIso} grid={app.data.guild} ranges={checkin.ranges} onpaint={paint} />
+    <div class="buttons editor-choice" role="group" aria-label="Availability editor">
+      <button aria-pressed={editor === 'ranges'} onclick={() => (editor = 'ranges')}>Time ranges</button>
+      <button aria-pressed={editor === 'grid'} onclick={() => (editor = 'grid')}>Paint grid</button>
+    </div>
+    {#if editor === 'ranges'}
+      <AvailabilityRanges
+        {weekIso}
+        grid={app.data.guild}
+        ranges={checkin.ranges}
+        onpaint={paint}
+        oneditstart={beginEdit}
+        oneditend={endEdit}
+      />
+    {:else}
+      <AvailabilityGrid
+        {weekIso}
+        grid={app.data.guild}
+        ranges={checkin.ranges}
+        onpaint={paint}
+        oneditstart={beginEdit}
+        oneditend={endEdit}
+      />
+    {/if}
     <div class="buttons form-actions">
       <button onclick={cantMakeIt}>Can’t make it this week</button>
       <small role="status">{status}</small>
     </div>
+    <InlineSaveStatus />
   </div>
 
   <div>
     <h2>Who are you bringing?</h2>
+    {#if !myCharacters.length}
+      <p class="note warning">Add a character before officers can include you in a roster.</p>
+      <button onclick={() => (app.view = 'characters')}>Add my first character</button>
+    {/if}
     <RaidSelector />
     <fieldset class="plain" disabled={closed}>
       <label class="checkbox-row"
@@ -172,3 +253,9 @@
     </p>
   </div>
 </div>
+
+<style>
+  .editor-choice {
+    margin: 1rem 0;
+  }
+</style>

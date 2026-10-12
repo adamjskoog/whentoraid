@@ -2,11 +2,13 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { app } from '../lib/app.svelte.js'
 import { discordChannel } from '../lib/discord-channel.svelte.js'
-import { getWeek, setPlan } from '../lib/model.js'
+import { getWeek, memberById, setPlan } from '../lib/model.js'
+import { isAvailable } from '../lib/engine.js'
 import { plannerContext } from '../lib/planning.js'
 import { createSeedState, SEED_WEEK } from '../lib/seed.js'
 import { addDays } from '../lib/time.js'
 import { toast } from '../lib/toast.svelte.js'
+import { saveLocalRaidResponse } from '../lib/raid-services.js'
 import Planner from './Planner.svelte'
 
 const savedPlan = () => getWeek(app.data, SEED_WEEK).plan
@@ -253,5 +255,87 @@ describe('Planner check-ins and weeks', () => {
   test('the bench is grouped by whether players can come', () => {
     render(Planner)
     expect(screen.getByRole('heading', { name: /Free for this session/ })).toBeTruthy()
+  })
+})
+
+describe('Planner player responses', () => {
+  beforeEach(() => {
+    app.data = createSeedState()
+    localStorage.clear()
+  })
+
+  test('a player who can’t make it is shown with their note and can be replaced in the draft', async () => {
+    const first = render(Planner)
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish roster' }))
+    const published = savedPlan().published
+    first.unmount()
+    // Someone whose role has an available player on the bench.
+    const { players } = plannerContext(app.data)
+    const benchFor = (role) =>
+      players.filter(
+        (p) =>
+          !published.team.some((e) => e.memberId === p.id) &&
+          isAvailable(p, published) &&
+          p.characters.some((c) => c.offered && c.role === role),
+      )
+    const target = published.team.find((e) => benchFor(e.role).length)
+    const name = memberById(app.data, target.memberId).name
+    const raidId = app.data.currentRaidId
+    saveLocalRaidResponse('browser', SEED_WEEK, raidId, target.memberId, published, 'unavailable', 'Sick')
+    const other = published.team.find((e) => e.memberId !== target.memberId)
+    saveLocalRaidResponse('browser', SEED_WEEK, raidId, other.memberId, published, 'confirmed')
+
+    render(Planner)
+    const panel = await screen.findByRole('region', { name: 'Player responses' })
+    const waiting = published.team.length - 2
+    expect(
+      within(panel).getByText(`1 confirmed · 1 can’t make it · ${waiting} not`, { exact: false }),
+    ).toBeTruthy()
+    expect(within(panel).getByText('Sick')).toBeTruthy()
+
+    await fireEvent.click(within(panel).getByRole('button', { name: `Find a replacement for ${name}` }))
+    const dialog = screen.getByRole('heading', { name: `Replace ${name}` }).closest('dialog')
+    const [option] = within(dialog)
+      .getAllByRole('button')
+      .filter((b) => b.querySelector('strong'))
+    await fireEvent.click(option)
+    expect(savedPlan().team.some((e) => e.memberId === target.memberId)).toBe(false)
+    expect(savedPlan().team.filter((e) => e.role === target.role)).toHaveLength(
+      published.team.filter((e) => e.role === target.role).length,
+    )
+    expect(savedPlan().published.team.some((e) => e.memberId === target.memberId)).toBe(true)
+    expect(toast.message).toMatch(/Replacement saved in the draft/)
+    expect(within(panel).getByText('Already changed in the draft')).toBeTruthy()
+  })
+
+  test('a response given before the session time changed is not shown', async () => {
+    const first = render(Planner)
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish roster' }))
+    first.unmount()
+    const published = savedPlan().published
+    const earlier = { ...published, start: published.start - 3600000, end: published.end - 3600000 }
+    saveLocalRaidResponse('browser', SEED_WEEK, app.data.currentRaidId, 'm6', earlier, 'unavailable', 'Old')
+    render(Planner)
+    const panel = await screen.findByRole('region', { name: 'Player responses' })
+    expect(within(panel).queryByText('Old')).toBeNull()
+    expect(within(panel).getByText(/0 confirmed · 0 can’t make it/)).toBeTruthy()
+  })
+
+  test('Refresh picks up a player’s response given after the planner opened', async () => {
+    render(Planner)
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish roster' }))
+    const panel = await screen.findByRole('region', { name: 'Player responses' })
+    expect(within(panel).getByText(/0 confirmed/)).toBeTruthy()
+    const published = savedPlan().published
+    saveLocalRaidResponse(
+      'browser',
+      SEED_WEEK,
+      app.data.currentRaidId,
+      published.team[0].memberId,
+      published,
+      'confirmed',
+    )
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Refresh' }))
+    await vi.waitFor(() => expect(within(panel).getByText(/1 confirmed/)).toBeTruthy())
   })
 })

@@ -3,6 +3,7 @@ import {
   applyOps,
   createGuildWithRows,
   createInvite,
+  createMemberInvite,
   currentInvite,
   disableInvite,
   fetchGuild,
@@ -323,12 +324,18 @@ describe('online guilds against a local Supabase', () => {
     const { guilds } = await fetchGuild(officer, guildId, SINCE)
     expect(offer).toMatchObject({ guildId, guildName: guilds[0].name, alreadyMember: false })
     const listed = state.members[2]
-    expect(offer.openPlayers).toContainEqual({ id: listed.id, name: listed.name })
-    expect(offer.openPlayers.map((p) => p.id)).not.toContain(state.members[1].id)
+    expect(offer.openPlayers).toEqual([])
+    await expect(joinGuild(claimer, code, { memberId: listed.id })).rejects.toMatchObject({ code: '42501' })
+    await expect(createMemberInvite(player, guildId, listed.id)).rejects.toMatchObject({ code: '42501' })
+    const personalCode = await createMemberInvite(officer, guildId, listed.id)
+    expect((await inviteDetails(claimer, personalCode)).openPlayers).toEqual([
+      { id: listed.id, name: listed.name },
+    ])
     expect((await inviteDetails(player, code)).alreadyMember).toBe(true)
 
     const { revision: beforeJoins } = await fetchGuild(officer, guildId, SINCE)
-    expect(await joinGuild(claimer, code, { memberId: listed.id })).toBe(guildId)
+    expect(await joinGuild(claimer, personalCode, { memberId: listed.id })).toBe(guildId)
+    await expect(inviteDetails(newcomer, personalCode)).rejects.toMatchObject({ code: 'P0002' })
     expect(await joinGuild(newcomer, code, { name: 'Wren' })).toBe(guildId)
     const loaded = rowsToState(await fetchGuild(newcomer, guildId, SINCE), {
       currentWeek: state.currentWeek,

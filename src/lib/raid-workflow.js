@@ -1,6 +1,6 @@
 import { conflicts, isAvailable } from './engine.js'
 import { clampStartSlot, slotWindow } from './grid.js'
-import { characterById, getCheckin, getWeek, setPlan, updateWeek } from './model.js'
+import { characterById, memberById, getCheckin, getWeek, setPlan, updateWeek } from './model.js'
 import { getRaid } from './raids.js'
 import { addDays, wallTime, weekdayIndex } from './time.js'
 import { ROLES } from './constants.js'
@@ -66,8 +66,99 @@ export function hasDraftChanges(state, plan) {
   return stableJson(snapshot(state, plan)) !== stableJson(saved)
 }
 
+/** Changes visible to players, ignoring internal locks and attendance edits. */
+export function publicationChanges(state, plan) {
+  const previous = getWeek(state, state.currentWeek).plan?.published
+  if (!previous) return [{ kind: 'new', message: `First publication · ${plan.team.length} players` }]
+  const changes = []
+  const raid = getRaid(state)
+  if (previous.start !== plan.start || previous.end !== plan.end)
+    changes.push({ kind: 'time', before: previous, after: plan })
+  if (previous.raidName !== raid.name) changes.push({ kind: 'name', message: `Raid renamed to ${raid.name}` })
+  if (stableJson(previous.targets) !== stableJson(raid.targets))
+    changes.push({ kind: 'composition', message: `Role targets: ${raid.targets.join(' / ')}` })
+  const description = (entry) =>
+    `${characterById(state, entry.characterId)?.name ?? 'Removed character'} (${entry.role})`
+  for (const entry of plan.team) {
+    const before = previous.team.find((e) => e.memberId === entry.memberId)
+    const name = memberById(state, entry.memberId)?.name ?? 'Removed player'
+    if (!before)
+      changes.push({
+        kind: 'added',
+        memberId: entry.memberId,
+        message: `${name} added · ${description(entry)}`,
+      })
+    else if (before.characterId !== entry.characterId || before.role !== entry.role)
+      changes.push({
+        kind: 'changed',
+        memberId: entry.memberId,
+        message: `${name}: ${description(before)} → ${description(entry)}`,
+      })
+  }
+  for (const entry of previous.team.filter((e) => !plan.team.some((p) => p.memberId === e.memberId)))
+    changes.push({
+      kind: 'removed',
+      memberId: entry.memberId,
+      message: `${memberById(state, entry.memberId)?.name ?? 'Removed player'} removed from roster`,
+    })
+  return changes
+}
+
+/** Structured publication failures let the UI take an officer straight to the affected assignment. */
+export function publicationIssues(state, plan, players) {
+  const issues = []
+  if (!plan.team.length) issues.push({ kind: 'empty', message: 'Add players before publishing this roster.' })
+  if (getWeek(state, state.currentWeek).plan?.cancelled)
+    issues.push({
+      kind: 'cancelled',
+      message: 'A cancelled raid cannot be published. Clear its cancelled status first.',
+    })
+  const overlaps = overlappingPlayers(state, state.currentWeek, state.currentRaidId, plan, true)
+  for (const other of overlaps)
+    for (const memberId of other.memberIds)
+      issues.push({
+        kind: 'overlap',
+        memberId,
+        raidId: other.raidId,
+        week: other.week,
+        message: `${memberById(state, memberId)?.name ?? 'Removed player'} is already rostered for ${other.raidName}.`,
+      })
+  const seen = new Set()
+  for (const entry of plan.team) {
+    const name = memberById(state, entry.memberId)?.name ?? 'Removed player'
+    if (seen.has(entry.memberId))
+      issues.push({
+        kind: 'duplicate',
+        memberId: entry.memberId,
+        message: `${name} holds more than one roster slot.`,
+      })
+    seen.add(entry.memberId)
+    const reasons = conflicts(entry, players, plan).filter((reason) => !reason.startsWith('Committed to '))
+    if (reasons.length)
+      issues.push({ kind: 'player', memberId: entry.memberId, message: `${name}: ${reasons.join('; ')}.` })
+  }
+  const raid = getRaid(state)
+  ROLES.forEach((role, i) => {
+    const count = plan.team.filter((e) => e.role === role).length
+    if (count > raid.targets[i])
+      issues.push({
+        kind: 'capacity',
+        role,
+        message: `${role}: ${count} players for ${raid.targets[i]} slots. Move a player to the bench.`,
+      })
+  })
+  return issues
+}
+
 /** Publishing freezes the player-facing roster. Subsequent edits continue in a separate draft. */
 export function publishPlan(state, plan, players, now = Date.now()) {
+  const issues = publicationIssues(state, plan, players)
+  if (issues.some((issue) => issue.kind === 'overlap'))
+    return {
+      state,
+      error: 'Resolve overlapping players with other published raids before publishing.',
+      issues,
+    }
   if (!plan.team.length) return { state, error: 'Add players before publishing this roster.' }
   if (getWeek(state, state.currentWeek).plan?.cancelled)
     return { state, error: 'A cancelled raid cannot be published.' }

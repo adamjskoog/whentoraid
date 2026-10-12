@@ -14,6 +14,9 @@ async function createGuild(page) {
   await page.getByLabel('Specialization').selectOption('Holy')
   await page.getByLabel('Raid role').selectOption('Healer')
   await page.getByRole('button', { name: 'Create guild' }).click()
+  // A new guild opens on the founder's own raid page, which guides their first steps.
+  await expect(page.getByRole('heading', { name: 'My next raid' })).toBeVisible()
+  await page.getByRole('button', { name: /Guild members/ }).click()
   await expect(page.getByRole('heading', { name: 'Guild members' })).toBeVisible()
 }
 
@@ -51,7 +54,7 @@ test('the guild survives a reload and can be started over', async ({ page }) => 
 
   // Back returns to the previous page.
   await page.getByRole('button', { name: /Raid planner/ }).click()
-  await expect(page.getByRole('heading', { name: 'Find your next raid night.' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Roster publication' })).toBeVisible()
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Guild members' })).toBeVisible()
 

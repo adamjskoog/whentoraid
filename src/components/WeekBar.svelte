@@ -59,7 +59,7 @@
     <small>All times: {zone} · {hoursLabel} · 30-minute slots · +1 = next day</small>
     {#if labelsVary}
       <small class="gold"
-        >Clocks change this week: row times are Monday’s. Hover a cell for its exact time.</small
+        >Clocks change this week: row times are Monday’s. Select a cell for its exact date and time.</small
       >
     {/if}
   </div>

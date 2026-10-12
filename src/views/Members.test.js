@@ -55,4 +55,15 @@ describe('Guild members', () => {
     render(Members)
     expect(screen.getAllByText('Checked in')).toHaveLength(24)
   })
+
+  test('finds players by an alt character and combines role and check-in filters', async () => {
+    render(Members)
+    await fill('Search players or characters', 'Stoneguardalt')
+    expect(screen.getByRole('rowheader', { name: /Adam/ })).toBeTruthy()
+    expect(screen.queryByRole('rowheader', { name: /Briar/ })).toBeNull()
+    await choose('Role', 'Healer')
+    expect(screen.getByRole('rowheader', { name: /Adam/ })).toBeTruthy()
+    await choose('Check-in', 'waiting')
+    expect(screen.getByText('No players match these filters.')).toBeTruthy()
+  })
 })

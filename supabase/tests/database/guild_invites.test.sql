@@ -1,7 +1,7 @@
 -- Joining a guild through an invite link. Run with: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(24);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'officer@example.test', '{}'),
@@ -19,7 +19,7 @@ create function pg_temp.act_as(user_id uuid) returns void language sql as $$
          set_config('request.jwt.claims', json_build_object('sub', user_id, 'role', 'authenticated')::text, true)
 $$;
 
-create temp table g (id uuid, code text);
+create temp table g (id uuid, code text, personal text);
 grant select, insert, update on g to authenticated;
 
 -- The officer creates a guild listing Nova (not yet linked) and a second, unlinked officer.
@@ -41,6 +41,9 @@ select is(public.current_guild_invite((select id from g)), null, 'a guild starts
 update g set code = public.guild_invite_code(id);
 select matches((select code from g), '^[a-f0-9]{32}$', 'an officer creates an invite code');
 select is(public.guild_invite_code((select id from g)), (select code from g), 'asking again returns the same code');
+update g set personal = public.create_member_invite(id, 'm-nova');
+select throws_ok($$ select public.create_member_invite((select id from g), 'm-coofficer') $$,
+  '22023', null, 'officer profiles cannot receive claim links');
 
 -- Without the code nothing is visible; with it, only the guild name and unclaimed players.
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000b1');
@@ -49,10 +52,22 @@ select throws_ok($$ select * from public.invite_details('00000000000000000000000
 select throws_ok($$ select public.guild_invite_code((select id from g)) $$, '42501', null,
   'a non-member cannot create invite codes');
 select is((select open_players from public.invite_details((select code from g))),
-  '[{"id": "m-nova", "name": "Nova"}]'::jsonb, 'unclaimed players are offered, officers never');
+  '[]'::jsonb, 'general links never expose existing profiles');
+select throws_ok($$ select public.join_guild((select code from g), 'm-nova', null) $$,
+  '42501', null, 'a general link cannot claim an existing profile');
+select throws_ok($$ select public.create_member_invite((select id from g), 'm-nova') $$,
+  '42501', null, 'a non-member cannot issue personal links');
+select throws_ok($$ select public.disable_member_invite((select id from g), 'm-nova') $$,
+  '42501', null, 'a non-member cannot revoke personal links');
+select is((select open_players from public.invite_details((select personal from g))),
+  '[{"id": "m-nova", "name": "Nova"}]'::jsonb, 'a personal link offers exactly its named profile');
+select throws_ok($$ select public.join_guild((select personal from g), 'm-coofficer', null) $$,
+  '42501', null, 'a personal link cannot be redirected to another profile');
+select throws_ok($$ select public.join_guild((select personal from g), null, 'Other') $$,
+  '42501', null, 'a personal link cannot be reused as a general invite');
 
 -- Claiming a listed player links it to the caller's Discord account.
-select is(public.join_guild((select code from g), 'm-nova', null), (select id from g), 'a player claims Nova');
+select is(public.join_guild((select personal from g), 'm-nova', null), (select id from g), 'a player claims Nova');
 select is((select discord_id from public.members where id = 'm-nova'), '522222222222222222', 'Nova is linked');
 select is((select revision from public.guild_revisions where guild_id = (select id from g)), 2::bigint,
   'joining advances the guild revision');
@@ -60,10 +75,12 @@ select ok((select already_member from public.invite_details((select code from g)
 
 -- A second player cannot claim Nova or an officer, but can join as a new player.
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000c1');
-select throws_ok($$ select public.join_guild((select code from g), 'm-nova', null) $$, 'P0001', null,
+select throws_ok($$ select public.join_guild((select code from g), 'm-nova', null) $$, '42501', null,
   'a claimed player cannot be claimed again');
-select throws_ok($$ select public.join_guild((select code from g), 'm-coofficer', null) $$, 'P0001', null,
+select throws_ok($$ select public.join_guild((select code from g), 'm-coofficer', null) $$, '42501', null,
   'an officer cannot be claimed');
+select throws_ok($$ select public.join_guild((select personal from g), 'm-nova', null) $$, 'P0002', null,
+  'a personal invite is consumed after one use');
 select lives_ok($$ select public.join_guild((select code from g), null, '  Wren  ') $$, 'a new player joins');
 select is((select name from public.members where discord_id = '533333333333333333'), 'Wren',
   'the new player is listed under their name');

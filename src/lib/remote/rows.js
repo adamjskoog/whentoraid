@@ -219,6 +219,43 @@ export function diffRows(before, after) {
   return [...writes, ...deletes]
 }
 
+/**
+ * Rebase local row edits onto a newer server snapshot. Divergent writes to the same record
+ * require review; identical edits are harmless. In particular, never resurrect a deleted row.
+ */
+export function mergeRows(base, local, server, { reviewed = false } = {}) {
+  const merged = {}
+  const conflict = () => {
+    throw Object.assign(
+      new Error('Someone changed the same record. Your edit was not saved; review the latest version.'),
+      { code: 'ROW_CONFLICT' },
+    )
+  }
+  for (const table of TABLES) {
+    const index = (rows) => new Map((rows[table] ?? []).map((row) => [keyOf(table, row), row]))
+    const before = index(base)
+    const ours = index(local)
+    const theirs = index(server)
+    const result = new Map(theirs)
+    for (const key of new Set([...before.keys(), ...ours.keys()])) {
+      const original = stableJson(before.get(key))
+      const edited = stableJson(ours.get(key))
+      const latest = stableJson(theirs.get(key))
+      if (original === edited) continue
+      if (!reviewed && latest !== original && latest !== edited) conflict()
+      if (ours.has(key)) result.set(key, ours.get(key))
+      else result.delete(key)
+    }
+    merged[table] = [...result.values()]
+  }
+  // A concurrent child insertion must not disappear through a parent's cascading delete.
+  const members = new Set(merged.members.map((row) => `${row.guild_id}|${row.id}`))
+  for (const table of ['characters', 'availability_templates', 'checkins']) {
+    if (merged[table].some((row) => !members.has(`${row.guild_id}|${row.member_id}`))) conflict()
+  }
+  return merged
+}
+
 /** Only the weeks from `sinceWeek` on keep their check-ins (the same window the app loads). */
 export function recentRows(rows, sinceWeek) {
   return { ...rows, checkins: rows.checkins.filter((row) => row.week >= sinceWeek) }

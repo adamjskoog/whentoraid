@@ -7,8 +7,8 @@ test.beforeEach(async ({ page }) => {
     (state) => localStorage.setItem('whentoraid-v3', JSON.stringify(state)),
     createSeedState(),
   )
-  await page.goto('./')
-  await expect(page.getByRole('heading', { name: 'Find your next raid night.' })).toBeVisible()
+  await page.goto('./#/planner')
+  await expect(page.getByRole('region', { name: 'Roster publication' })).toBeVisible()
 })
 
 /** Bench and attendance start collapsed on phones; open the one a test needs. */
@@ -82,6 +82,6 @@ test('Back with unsaved guild settings stays put until the changes are discarded
   await expect(page.getByText(/You have unsaved guild settings/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Discard changes' }).click()
-  await expect(page.getByRole('heading', { name: 'Find your next raid night.' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Roster publication' })).toBeVisible()
   await expect(page).toHaveURL(/#\/planner\//)
 })

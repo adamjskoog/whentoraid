@@ -39,14 +39,15 @@
       error = result.error
       return
     }
-    app.view = 'members'
     if (!online) {
       app.data = result.state
+      app.view = 'home'
       return
     }
     creating = true
     try {
       await createOnlineGuild(result.state)
+      app.view = 'home'
     } catch (failure) {
       error = failure.message
     } finally {
@@ -105,6 +106,11 @@
 
     <form class="panel spaced-top" onsubmit={create}>
       <h2>Your guild</h2>
+      <p class="note">
+        {online
+          ? 'Online guild: your players sign in with Discord and share live check-ins and rosters.'
+          : 'Browser-only guild: saved on this device. Sign in with Discord to create a shared online guild, or move this guild online later in Guild settings.'}
+      </p>
       <p>
         Starts with two 10-player raids and one 20-player raid. Rename them and tune each composition in Guild
         settings.
@@ -152,13 +158,17 @@
       {/if}
       <div class="buttons form-actions">
         <button class="primary" disabled={creating}>
-          {online ? (creating ? 'Creating…' : 'Create guild online') : 'Create guild'}
+          {online ? (creating ? 'Creating…' : 'Create guild online') : 'Create guild in this browser'}
         </button>
       </div>
     </form>
 
     <section class="panel spaced-top">
       <h2>Just looking?</h2>
+      <p class="note">
+        Demo: sample players and schedules, saved only in this browser. No invitations or real Discord posts
+        are sent.
+      </p>
       <p>
         Explore 24 sample players with a full calendar year of randomized availability and plans for all three
         raids. Every load creates a fresh demo.

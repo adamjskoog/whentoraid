@@ -156,8 +156,17 @@ export async function disableInvite(client, guildId) {
   check(await client.rpc('disable_guild_invite', { p_guild_id: guildId }))
 }
 
+/** A seven-day single-use link for one unclaimed non-officer; replaces their previous link. */
+export async function createMemberInvite(client, guildId, memberId) {
+  return check(await client.rpc('create_member_invite', { p_guild_id: guildId, p_member_id: memberId }))
+}
+
+export async function disableMemberInvite(client, guildId, memberId) {
+  check(await client.rpc('disable_member_invite', { p_guild_id: guildId, p_member_id: memberId }))
+}
+
 /**
- * What an invite code offers the signed-in player.
+ * What an invite offers: no existing profiles for a general link, exactly one for a personal link.
  * @returns {Promise<{ guildId: string, guildName: string, alreadyMember: boolean, openPlayers: { id: string, name: string }[] }>}
  */
 export async function inviteDetails(client, code) {

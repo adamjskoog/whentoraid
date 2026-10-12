@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { markUnavailable, retireCharacter, setPlan } from '../model.js'
 import { removeMember } from '../members.js'
 import { createSeedState, SEED_WEEK } from '../seed.js'
-import { diffRows, recentRows, rowsToState, stableJson, stateToRows } from './rows.js'
+import { diffRows, mergeRows, recentRows, rowsToState, stableJson, stateToRows } from './rows.js'
 
 const GUILD = '8a3e0f52-0000-4000-8000-000000000001'
 
@@ -140,5 +140,46 @@ describe('helpers', () => {
       checkins: [{ week: '2026-01-05' }, { week: '2026-09-28' }],
     }
     expect(recentRows(rows, '2026-07-06').checkins).toEqual([{ week: '2026-09-28' }])
+  })
+})
+
+describe('mergeRows', () => {
+  const base = stateToRows(createSeedState(), GUILD)
+  const change = (rows, index, name) => ({
+    ...rows,
+    members: rows.members.map((row, i) => (i === index ? { ...row, name } : row)),
+  })
+
+  test('keeps independent local and remote row edits', () => {
+    const merged = mergeRows(base, change(base, 0, 'Local'), change(base, 1, 'Remote'))
+    expect(merged.members[0].name).toBe('Local')
+    expect(merged.members[1].name).toBe('Remote')
+  })
+
+  test('identical concurrent changes are already saved', () => {
+    const edited = change(base, 0, 'Same')
+    expect(diffRows(edited, mergeRows(base, edited, throughJsonb(edited)))).toEqual([])
+  })
+
+  test('an explicitly reviewed recovery replaces only locally changed rows', () => {
+    const server = change(change(base, 0, 'Their conflict'), 1, 'Their independent edit')
+    const merged = mergeRows(base, change(base, 0, 'My reviewed edit'), server, { reviewed: true })
+    expect(merged.members[0].name).toBe('My reviewed edit')
+    expect(merged.members[1].name).toBe('Their independent edit')
+  })
+
+  test('a divergent edit to the same row is a conflict, including deletion', () => {
+    expect(() => mergeRows(base, change(base, 0, 'Local'), change(base, 0, 'Remote'))).toThrow(/same record/)
+    const deleted = { ...base, members: base.members.slice(1) }
+    expect(() => mergeRows(base, change(base, 0, 'Local'), deleted)).toThrow(/same record/)
+  })
+
+  test('does not cascade-delete a remotely added child when a member is removed locally', () => {
+    const local = stateToRows(removeMember(createSeedState(), base.members[0].id).state, GUILD)
+    const remote = {
+      ...base,
+      characters: [...base.characters, { ...base.characters[0], id: 'new-remote-character' }],
+    }
+    expect(() => mergeRows(base, local, remote)).toThrow(/same record/)
   })
 })

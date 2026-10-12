@@ -6,6 +6,7 @@
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
 
   const NAV_ITEMS = [
+    { view: 'home', icon: '⌂', label: 'My raids' },
     { view: 'planner', icon: '⚔', label: 'Raid planner' },
     { view: 'availability', icon: '▦', label: 'My availability' },
     { view: 'characters', icon: '♙', label: 'My characters' },
@@ -18,7 +19,7 @@
 
   function goHome(event) {
     event.preventDefault()
-    requestLeave(() => (app.view = 'planner'))
+    requestLeave(() => (app.view = 'home'))
   }
 
   function switchMember(event) {
@@ -27,7 +28,7 @@
 </script>
 
 <aside>
-  <a class="brand" href="#/planner" onclick={goHome}>
+  <a class="brand" href="#/home" onclick={goHome}>
     <span class="crest">W</span>
     <span>WHEN<span class="gold">TO</span>RAID<small>THE GUILD WAR ROOM</small></span>
   </a>
