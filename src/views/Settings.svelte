@@ -1,5 +1,6 @@
 <script>
   import { tick, untrack } from 'svelte'
+  import DiscordChannelSettings from '../components/DiscordChannelSettings.svelte'
   import OnlineAccount from '../components/OnlineAccount.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import RestoreButton from '../components/RestoreButton.svelte'
@@ -261,6 +262,10 @@
     <button class="primary form-actions">Save settings</button>
   </form>
 {/key}
+
+<section class="panel settings-panel spaced-top">
+  <DiscordChannelSettings />
+</section>
 
 <section class="panel settings-panel spaced-top">
   <h2>Online</h2>

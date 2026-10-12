@@ -135,6 +135,21 @@ export function rosterDiscord(state, plan, players) {
 }
 
 /**
+ * A line mentioning each rostered player who has a Discord ID, for posting through a webhook.
+ * @returns {{ ids: string[], line: string }} `line` is empty when nobody has an ID
+ */
+export function rosterMentions(state, plan) {
+  const ids = [
+    ...new Set(
+      plan.team
+        .map((entry) => memberById(state, entry.memberId)?.discordId)
+        .filter((id) => /^\d{17,20}$/.test(id ?? '')),
+    ),
+  ]
+  return { ids, line: ids.length ? `**Raiders:** ${ids.map((id) => `<@${id}>`).join(' ')}` : '' }
+}
+
+/**
  * Bench summary: names of players who could fill in, then counts for the rest.
  * Players who cannot come are not listed by name, so nobody reads the bench as "on standby".
  */

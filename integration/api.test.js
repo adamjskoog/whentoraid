@@ -1,5 +1,14 @@
 import { beforeAll, describe, expect, test } from 'vitest'
-import { applyOps, createGuildWithRows, fetchGuild, listGuilds, myDiscordId } from '../src/lib/remote/api.js'
+import {
+  applyOps,
+  createGuildWithRows,
+  fetchGuild,
+  getGuildDiscord,
+  listGuilds,
+  myDiscordId,
+  recordDiscordPost,
+  setGuildDiscord,
+} from '../src/lib/remote/api.js'
 import { diffRows, rowsToState, stateToRows } from '../src/lib/remote/rows.js'
 import {
   markUnavailable,
@@ -278,5 +287,23 @@ describe('online guilds against a local Supabase', () => {
     const after = await fetchGuild(officer, guildId, SINCE)
     expect(after.members.some((member) => member.id === 'm-rollback')).toBe(false)
     expect(after.revision).toBe(before.revision)
+  })
+
+  test('only officers see and change the Discord channel, and posts are remembered', async () => {
+    const webhookUrl = 'https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_-0123'
+    expect(await getGuildDiscord(officer, guildId)).toBeNull()
+    await setGuildDiscord(officer, guildId, { webhookUrl, mentionPlayers: true })
+    await recordDiscordPost(officer, guildId, `${THIS_WEEK}/raid-20`, ['1300000000000000001'])
+    expect(await getGuildDiscord(officer, guildId)).toEqual({
+      webhookUrl,
+      mentionPlayers: true,
+      posts: { [`${THIS_WEEK}/raid-20`]: ['1300000000000000001'] },
+    })
+    await expect(getGuildDiscord(player, guildId)).rejects.toMatchObject({ code: '42501' })
+    await expect(
+      setGuildDiscord(player, guildId, { webhookUrl: '', mentionPlayers: false }),
+    ).rejects.toMatchObject({ code: '42501' })
+    // Players load the guild without ever receiving the webhook.
+    expect(JSON.stringify(await fetchGuild(player, guildId, SINCE))).not.toContain('webhooks')
   })
 })

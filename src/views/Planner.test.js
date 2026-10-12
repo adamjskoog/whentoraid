@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { app } from '../lib/app.svelte.js'
+import { discordChannel } from '../lib/discord-channel.svelte.js'
 import { getWeek, setPlan } from '../lib/model.js'
 import { plannerContext } from '../lib/planning.js'
 import { createSeedState, SEED_WEEK } from '../lib/seed.js'
@@ -153,6 +154,52 @@ describe('Planner without attendance tracking', () => {
     await fireEvent.click(screen.getByRole('checkbox', { name: 'Raid was cancelled' }))
     expect(savedPlan().cancelled).toBe(true)
     expect(screen.getByText('This raid is cancelled.')).toBeTruthy()
+  })
+})
+
+describe('Planner posting to Discord', () => {
+  const HOOK = 'https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_-0123456789'
+
+  beforeEach(() => {
+    app.data = createSeedState()
+    localStorage.clear()
+    discordChannel.loaded = false
+  })
+
+  test('without a channel, officers are told where to set one', async () => {
+    render(Planner)
+    expect(await screen.findByText(/Set a Discord channel in Guild settings/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Post to Discord' })).toBeNull()
+  })
+
+  test('the published roster is posted, then republishing edits the same message', async () => {
+    localStorage.setItem(
+      'whentoraid-discord-channel',
+      JSON.stringify({ webhookUrl: HOOK, mentionPlayers: false, posts: {} }),
+    )
+    const fetchFn = vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      json: async () => ({ id: '1300000000000000001' }),
+    }))
+    vi.stubGlobal('fetch', fetchFn)
+    render(Planner)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish roster' }))
+    await fireEvent.click(await screen.findByRole('button', { name: 'Post to Discord' }))
+    await vi.waitFor(() => expect(toast.message).toBe('Roster posted to Discord.'))
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe(`${HOOK}?wait=true`)
+    expect(JSON.parse(init.body).content).toContain('**PUBLISHED ROSTER**')
+
+    // A draft change, published again, updates the post in place.
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit Frostbyte' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Move to bench' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish draft changes' }))
+    await vi.waitFor(() => expect(toast.message).toBe('Discord post updated.'))
+    expect(fetchFn.mock.calls[1][0]).toBe(`${HOOK}/messages/1300000000000000001`)
+    expect(fetchFn.mock.calls[1][1].method).toBe('PATCH')
+    vi.unstubAllGlobals()
   })
 })
 
