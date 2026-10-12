@@ -5,6 +5,7 @@ import {
   DISCORD_MESSAGE_LIMIT,
   escapeDiscord,
   rosterDiscord,
+  rosterMentions,
   rosterText,
   splitForDiscord,
 } from './roster-export.js'
@@ -58,6 +59,24 @@ describe('rosterDiscord', () => {
     const text = rosterDiscord(state, plan, players)
     expect(text).not.toContain('@everyone')
     expect(text).toContain('@\u200beveryone \\*x\\*')
+  })
+})
+
+describe('rosterMentions', () => {
+  test('mentions each rostered player with a Discord ID once, and nobody else', () => {
+    const seed = createSeedState()
+    const { plan } = plannerContext(seed)
+    const [first, second] = plan.team
+    const benched = seed.members.find((m) => !plan.team.some((e) => e.memberId === m.id))
+    const ids = { [first.memberId]: '511111111111111111', [benched.id]: '533333333333333333' }
+    const state = { ...seed, members: seed.members.map((m) => ({ ...m, discordId: ids[m.id] ?? '' })) }
+    const result = rosterMentions(state, { ...plan, team: [first, first, second] })
+    expect(result).toEqual({ ids: ['511111111111111111'], line: '**Raiders:** <@511111111111111111>' })
+  })
+
+  test('no line when nobody has a Discord ID', () => {
+    const state = createSeedState()
+    expect(rosterMentions(state, plannerContext(state).plan)).toEqual({ ids: [], line: '' })
   })
 })
 

@@ -115,4 +115,31 @@ export async function applyOps(client, guildId, revision, ops) {
   )
 }
 
+/**
+ * The guild's Discord channel, readable by officers only.
+ * @returns {Promise<{ webhookUrl: string, mentionPlayers: boolean, posts: Record<string, string[]> } | null>}
+ */
+export async function getGuildDiscord(client, guildId) {
+  const [row] = check(await client.rpc('get_guild_discord', { p_guild_id: guildId }))
+  return row ? { webhookUrl: row.webhook_url, mentionPlayers: row.mention_players, posts: row.posts } : null
+}
+
+/** Set the guild's Discord channel; an empty URL removes it. */
+export async function setGuildDiscord(client, guildId, { webhookUrl, mentionPlayers }) {
+  check(
+    await client.rpc('set_guild_discord', {
+      p_guild_id: guildId,
+      p_webhook_url: webhookUrl,
+      p_mention_players: mentionPlayers,
+    }),
+  )
+}
+
+/** Remember the Discord messages holding one raid's roster (`key` is "week/raid id"). */
+export async function recordDiscordPost(client, guildId, key, messageIds) {
+  check(
+    await client.rpc('record_discord_post', { p_guild_id: guildId, p_key: key, p_message_ids: messageIds }),
+  )
+}
+
 export { TABLES }

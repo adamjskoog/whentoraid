@@ -42,7 +42,9 @@
     toggleLock,
     topDistinctDays,
   } from '../lib/planning.js'
-  import { rosterDiscord, rosterText, splitForDiscord } from '../lib/roster-export.js'
+  import { rosterDiscord, rosterMentions, rosterText, splitForDiscord } from '../lib/roster-export.js'
+  import { discordChannel, loadDiscordChannel, postKey, rememberPost } from '../lib/discord-channel.svelte.js'
+  import { deleteFromWebhook, postToWebhook } from '../lib/discord-webhook.js'
   import { showToast, offerUndo } from '../lib/toast.svelte.js'
 
   let showPublished = $state(false)
@@ -105,6 +107,8 @@
     if (result.error) return showToast(result.error)
     app.data = result.state
     offerUndo('Roster published. Draft edits will stay separate.', previous)
+    // A roster already in Discord follows what was just published.
+    if (discordChannel.webhookUrl && postedIds.length) void postToDiscord()
   }
 
   function withdraw() {
@@ -260,6 +264,54 @@
     copyText(rosterDiscord(app.data, plan, players), 'Roster copied. Paste it into Discord.')
   }
 
+  $effect(() => {
+    if (canManage()) void loadDiscordChannel()
+  })
+
+  const discordKey = $derived(postKey(weekIso, app.data.currentRaidId))
+  const postedIds = $derived(discordChannel.posts[discordKey] ?? [])
+  let posting = $state(false)
+
+  /** Post the published roster to the guild's Discord channel, or update the earlier post. */
+  async function postToDiscord() {
+    if (officersOnly() || !published || posting) return
+    const key = discordKey
+    const confirmed = { ...published, locked: [], saved: true, cancelled: savedPlan?.cancelled ?? false }
+    const mentions = discordChannel.mentionPlayers
+      ? rosterMentions(app.data, confirmed)
+      : { ids: [], line: '' }
+    const text = [rosterDiscord(app.data, confirmed, players), mentions.line].filter(Boolean).join('\n\n')
+    const previousIds = discordChannel.posts[key] ?? []
+    posting = true
+    try {
+      const ids = await postToWebhook(discordChannel.webhookUrl, splitForDiscord(text), {
+        previousIds,
+        mentionIds: mentions.ids,
+      })
+      await rememberPost(key, ids)
+      showToast(previousIds.length ? 'Discord post updated.' : 'Roster posted to Discord.')
+    } catch (error) {
+      showToast(error.message)
+    } finally {
+      posting = false
+    }
+  }
+
+  async function deleteDiscordPost() {
+    if (officersOnly() || posting) return
+    const key = discordKey
+    posting = true
+    try {
+      await deleteFromWebhook(discordChannel.webhookUrl, discordChannel.posts[key] ?? [])
+      await rememberPost(key, [])
+      showToast('Discord post deleted.')
+    } catch (error) {
+      showToast(error.message)
+    } finally {
+      posting = false
+    }
+  }
+
   function exportRoster() {
     downloadText(`whentoraid-${settings.id}-${weekIso}.txt`, rosterText(app.data, plan, players))
   }
@@ -291,6 +343,14 @@
         >
       {/if}
       {#if published}<button onclick={withdraw}>Withdraw published roster</button>{/if}
+      {#if discordChannel.webhookUrl && published}
+        <button disabled={posting} onclick={postToDiscord}
+          >{postedIds.length ? 'Update Discord post' : 'Post to Discord'}</button
+        >
+      {/if}
+      {#if discordChannel.webhookUrl && postedIds.length}
+        <button disabled={posting} onclick={deleteDiscordPost}>Delete Discord post</button>
+      {/if}
     {/if}
   </div>
   {#if canManage() && plan.team.length}
@@ -310,6 +370,11 @@
         ? 'Published roster is available. Draft changes have not been published.'
         : 'The draft matches the published roster.'}
     {viewPublished ? 'Viewing the confirmed roster.' : 'Editing the draft.'}
+    {#if canManage() && discordChannel.webhookUrl && postedIds.length}
+      Posted to Discord; publishing draft changes updates the post.
+    {:else if canManage() && discordChannel.loaded && !discordChannel.webhookUrl}
+      Set a Discord channel in Guild settings to post rosters there directly.
+    {/if}
   </p>
   {#if savedPlan?.cancelled}<p class="warning">This raid is cancelled.</p>{/if}
 </section>
