@@ -429,3 +429,13 @@ enabled = true
 # formatted with uppercase keywords, indent 2, max width 180, trailing commas,
 # and column/key alignment. Set to "null" to emit raw, unformatted SQL.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":180,\"commaStyle\":\"trailing\"}"
+
+# Calendar apps cannot sign in: the feed's long random token is its credential.
+[functions.raid-calendar]
+verify_jwt = false
+entrypoint = "./functions/raid-calendar/index.js"
+
+# Checks the caller itself: an officer's session for their guild, or the scheduler's shared secret.
+[functions.raid-dispatch]
+verify_jwt = false
+entrypoint = "./functions/raid-dispatch/index.js"

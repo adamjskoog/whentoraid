@@ -57,6 +57,18 @@
   import { deleteFromWebhook, postToWebhook } from '../lib/discord-webhook.js'
   import { showToast, offerUndo } from '../lib/toast.svelte.js'
   import { loadRaidResponses, responseKey } from '../lib/raid-responses.svelte.js'
+  import {
+    delivery,
+    deliveryKey,
+    deliveryStatus,
+    needsRetry,
+    queueAndSend,
+    refreshDelivery,
+    retryDelivery,
+    sendQueued,
+    usesServerDelivery,
+    watchDelivery,
+  } from '../lib/discord-delivery.svelte.js'
 
   let showPublished = $state(false)
   let undoChange = $state(null)
@@ -185,7 +197,7 @@
     showIssues = false
     offerUndo('Roster published. Draft edits will stay separate.', previous)
     // A roster already in Discord follows what was just published.
-    if (discordChannel.webhookUrl && postedIds.length) void postToDiscord()
+    if (discordChannel.webhookUrl && postedIds.length) void followPublication(postToDiscord)
   }
 
   function withdraw() {
@@ -194,7 +206,7 @@
     app.data = withdrawPlan(app.data)
     showPublished = false
     offerUndo('Published roster withdrawn. Your draft is kept.', previous)
-    if (discordChannel.webhookUrl && postedIds.length) void withdrawDiscordPost()
+    if (discordChannel.webhookUrl && postedIds.length) void followPublication(withdrawDiscordPost)
   }
 
   const totalSlots = $derived(settings.targets.reduce((sum, n) => sum + n, 0))
@@ -318,7 +330,7 @@
     ensureSaved()
     app.data = setCancelled(app.data, weekIso, cancelled)
     showToast(cancelled ? 'Raid marked as cancelled' : 'Raid marked as held')
-    if (published && discordChannel.webhookUrl && postedIds.length) void postToDiscord()
+    if (published && discordChannel.webhookUrl && postedIds.length) void followPublication(postToDiscord)
   }
 
   /** Messages to copy by hand when the clipboard API is unavailable (e.g. not a secure context). */
@@ -360,9 +372,48 @@
   const postedIds = $derived(discordChannel.posts[discordKey] ?? [])
   let posting = $state(false)
 
+  $effect(() => {
+    if (canManage() && usesServerDelivery() && discordChannel.webhookUrl)
+      void watchDelivery(weekIso, app.data.currentRaidId)
+  })
+  /** Only the raid on screen: a slow reload for another raid never shows here. */
+  const shownDelivery = $derived(
+    delivery.key === deliveryKey(weekIso, app.data.currentRaidId) ? delivery.latest : null,
+  )
+  // A queued or sending post is checked again until it settles (the scheduler may send it).
+  const DELIVERY_POLL_MS = 15_000
+  $effect(() => {
+    const status = shownDelivery?.status
+    if (status !== 'pending' && status !== 'sending') return
+    const week = weekIso
+    const raidId = app.data.currentRaidId
+    const timer = setInterval(() => void refreshDelivery(week, raidId), DELIVERY_POLL_MS)
+    return () => clearInterval(timer)
+  })
+
+  /**
+   * Keep a roster already in Discord in step with what was just saved. Online, the save itself
+   * queued the edit on the server, so this only asks the worker to send it now.
+   */
+  async function followPublication(browserPost) {
+    if (!usesServerDelivery()) return browserPost()
+    await serverAction(() => sendQueued(weekIso, app.data.currentRaidId))
+  }
+
+  async function serverAction(run) {
+    posting = true
+    try {
+      const message = await run()
+      if (message) showToast(message)
+    } finally {
+      posting = false
+    }
+  }
+
   /** Post the published roster to the guild's Discord channel, or update the earlier post. */
   async function postToDiscord() {
     if (officersOnly() || !published || posting) return
+    if (usesServerDelivery()) return serverAction(() => queueAndSend(weekIso, app.data.currentRaidId, 'post'))
     const key = discordKey
     const confirmed = { ...published, locked: [], saved: true, cancelled: savedPlan?.cancelled ?? false }
     const mentions = discordChannel.mentionPlayers
@@ -387,6 +438,8 @@
 
   async function deleteDiscordPost() {
     if (officersOnly() || posting) return
+    if (usesServerDelivery())
+      return serverAction(() => queueAndSend(weekIso, app.data.currentRaidId, 'delete'))
     const key = discordKey
     posting = true
     try {
@@ -512,6 +565,18 @@
       Set a Discord channel in Guild settings to post rosters there directly.
     {/if}
   </p>
+  {#if canManage() && usesServerDelivery() && deliveryStatus(shownDelivery)}
+    <p class:warning={needsRetry(shownDelivery)} role="status">
+      {deliveryStatus(shownDelivery)}
+      {#if needsRetry(shownDelivery)}
+        <button
+          disabled={posting}
+          onclick={() => serverAction(() => retryDelivery(weekIso, app.data.currentRaidId))}
+          >Retry Discord post</button
+        >
+      {/if}
+    </p>
+  {/if}
   {#if savedPlan?.cancelled}<p class="warning">This raid is cancelled.</p>{/if}
   {#if canManage() && !viewPublished && showIssues && issues.length}
     <section role="alert" class="publication-review">

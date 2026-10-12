@@ -17,4 +17,10 @@ export default [
     files: ['*.config.js', 'vitest-setup.js', 'integration/**/*.js', 'dev/**/*.js'],
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    // Supabase Edge Functions run on Deno; their console output is the server log.
+    files: ['supabase/functions/**/*.js'],
+    languageOptions: { globals: { Deno: 'readonly' } },
+    rules: { 'no-console': 'off' },
+  },
 ]

@@ -1,6 +1,8 @@
 <script>
   import { tick, untrack } from 'svelte'
   import DiscordChannelSettings from '../components/DiscordChannelSettings.svelte'
+  import ReminderSettings from '../components/ReminderSettings.svelte'
+  import { discordChannel } from '../lib/discord-channel.svelte.js'
   import OnlineAccount from '../components/OnlineAccount.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import RestoreButton from '../components/RestoreButton.svelte'
@@ -266,6 +268,12 @@
 <section class="panel settings-panel spaced-top">
   <DiscordChannelSettings />
 </section>
+
+{#if remote.guildId && canManage() && discordChannel.webhookUrl}
+  <section class="panel settings-panel spaced-top">
+    <ReminderSettings />
+  </section>
+{/if}
 
 <section class="panel settings-panel spaced-top">
   <h2>Online</h2>

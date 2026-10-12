@@ -3,6 +3,8 @@
   import OnboardingChecklist from '../components/OnboardingChecklist.svelte'
   import InlineSaveStatus from '../components/InlineSaveStatus.svelte'
   import RaidResponse from '../components/RaidResponse.svelte'
+  import CalendarSubscription from '../components/CalendarSubscription.svelte'
+  import { remote } from '../lib/remote/sync.svelte.js'
   import { app } from '../lib/app.svelte.js'
   import { viewerZone } from '../lib/display.svelte.js'
   import { getCheckin, memberById } from '../lib/model.js'
@@ -97,6 +99,10 @@
       {/each}
     </ul>
   </section>
+{/if}
+
+{#if remote.guildId && remote.memberId === memberId}
+  <div class="spaced-top"><CalendarSubscription /></div>
 {/if}
 
 <style>
