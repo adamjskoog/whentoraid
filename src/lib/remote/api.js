@@ -142,4 +142,40 @@ export async function recordDiscordPost(client, guildId, key, messageIds) {
   )
 }
 
+/** The guild's invite code, or null when its invite link is off. Officers only. */
+export async function currentInvite(client, guildId) {
+  return check(await client.rpc('current_guild_invite', { p_guild_id: guildId }))
+}
+
+/** Turn the invite link on (or keep it), or with `reset` replace it so old links stop working. */
+export async function createInvite(client, guildId, { reset = false } = {}) {
+  return check(await client.rpc('guild_invite_code', { p_guild_id: guildId, p_reset: reset }))
+}
+
+export async function disableInvite(client, guildId) {
+  check(await client.rpc('disable_guild_invite', { p_guild_id: guildId }))
+}
+
+/**
+ * What an invite code offers the signed-in player.
+ * @returns {Promise<{ guildId: string, guildName: string, alreadyMember: boolean, openPlayers: { id: string, name: string }[] }>}
+ */
+export async function inviteDetails(client, code) {
+  const [row] = check(await client.rpc('invite_details', { p_code: code }))
+  return {
+    guildId: row.guild_id,
+    guildName: row.guild_name,
+    alreadyMember: row.already_member,
+    openPlayers: row.open_players,
+  }
+}
+
+/**
+ * Join through an invite as the listed player `memberId`, or as a new player named `name`.
+ * @returns {Promise<string>} the guild's id
+ */
+export async function joinGuild(client, code, { memberId = null, name = '' }) {
+  return check(await client.rpc('join_guild', { p_code: code, p_member_id: memberId, p_name: name }))
+}
+
 export { TABLES }

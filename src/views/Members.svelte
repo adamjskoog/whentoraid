@@ -1,4 +1,5 @@
 <script>
+  import InvitePanel from '../components/InvitePanel.svelte'
   import MemberDialog from '../components/MemberDialog.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import { app } from '../lib/app.svelte.js'
@@ -52,7 +53,11 @@
   {/snippet}
 </PageTitle>
 
-<div class="panel member-table-wrap">
+{#if remote.guildId && remote.officer}
+  <InvitePanel />
+{/if}
+
+<div class="panel member-table-wrap spaced-top">
   <table class="member-table">
     <thead>
       <tr>
@@ -102,8 +107,8 @@
   {#if !remote.guildId}
     Everything is saved in this browser. “Act as” stands in for sign-in until your guild is online.
   {:else if canManage()}
-    Players sign in with Discord: add a player’s Discord ID to let them in. As an officer you can act as
-    anyone to fill in their availability.
+    Players join with the invite link above, or you can add a player’s Discord ID yourself. As an officer you
+    can act as anyone to fill in their availability.
   {:else}
     Officers manage the player list. You can edit your own availability and characters.
   {/if}
