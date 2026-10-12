@@ -12,6 +12,7 @@
   import SuggestionCards from '../components/SuggestionCards.svelte'
   import WeekBar from '../components/WeekBar.svelte'
   import RaidSelector from '../components/RaidSelector.svelte'
+  import RaidResponsesPanel from '../components/RaidResponsesPanel.svelte'
   import WeeklyOverview from '../components/WeeklyOverview.svelte'
   import {
     copyPreviousRoster,
@@ -19,17 +20,26 @@
     publishPlan,
     withdrawPlan,
     undoRosterChange,
+    publicationChanges,
+    publicationIssues,
   } from '../lib/raid-workflow.js'
-  import { getRaid } from '../lib/raids.js'
+  import { getRaid, setCurrentRaid } from '../lib/raids.js'
   import { app } from '../lib/app.svelte.js'
-  import { setAttendance, setCancelled } from '../lib/attendance.js'
+  import { markAllAttended, setAttendance, setCancelled } from '../lib/attendance.js'
   import { rosterIcs } from '../lib/calendar.js'
   import { ROLES } from '../lib/constants.js'
   import { downloadText } from '../lib/download.js'
   import { backups, conflicts, isAvailable } from '../lib/engine.js'
   import { displayZone } from '../lib/display.svelte.js'
   import { clampStartSlot, formatSessionIn, slotWindow } from '../lib/grid.js'
-  import { characterById, getWeek, setPlan, tracksAttendance } from '../lib/model.js'
+  import {
+    characterById,
+    memberById,
+    getWeek,
+    setCurrentWeek,
+    setPlan,
+    tracksAttendance,
+  } from '../lib/model.js'
   import { canManage } from '../lib/remote/sync.svelte.js'
   import {
     benchMember,
@@ -46,6 +56,7 @@
   import { discordChannel, loadDiscordChannel, postKey, rememberPost } from '../lib/discord-channel.svelte.js'
   import { deleteFromWebhook, postToWebhook } from '../lib/discord-webhook.js'
   import { showToast, offerUndo } from '../lib/toast.svelte.js'
+  import { loadRaidResponses, responseKey } from '../lib/raid-responses.svelte.js'
 
   let showPublished = $state(false)
   let undoChange = $state(null)
@@ -70,6 +81,70 @@
   /** The saved plan carries attendance; the resolved plan above may be an unsaved suggestion. */
   const savedPlan = $derived(getWeek(app.data, weekIso).plan)
   const draftChanged = $derived(hasDraftChanges(app.data, context.plan))
+  const changes = $derived(publicationChanges(app.data, context.plan))
+  const issues = $derived(publicationIssues(app.data, context.plan, players))
+  let showIssues = $state(false)
+  let replacementTarget = $state(null)
+  const replacementEntry = $derived(context.plan.team.find((entry) => entry.memberId === replacementTarget))
+  const replacements = $derived(
+    replacementEntry
+      ? players
+          .filter(
+            (player) =>
+              !context.plan.team.some((entry) => entry.memberId === player.id) &&
+              isAvailable(player, context.plan),
+          )
+          .flatMap((player) =>
+            player.characters
+              .filter((character) => character.offered && character.role === replacementEntry.role)
+              .map((character) => ({ player, character })),
+          )
+      : [],
+  )
+
+  /** Officers see how players answered the published roster; republishing asks everyone again. */
+  let responses = $state({ key: null, byMember: {}, error: '' })
+  /** Bumped to fetch again: responses are not part of live guild sync. */
+  let responsesTick = $state(0)
+  const responsesKey = $derived(published ? responseKey(weekIso, app.data.currentRaidId, published) : null)
+  $effect(() => {
+    const key = responsesKey
+    void responsesTick
+    if (!key || !canManage()) return
+    const raidId = app.data.currentRaidId
+    loadRaidResponses(weekIso, raidId, published)
+      .then((byMember) => {
+        if (key === responsesKey) responses = { key, byMember, error: '' }
+      })
+      .catch((error) => {
+        if (key === responsesKey) responses = { key, byMember: {}, error: error.message }
+      })
+  })
+  const inDraft = (memberId) => context.plan.team.some((entry) => entry.memberId === memberId)
+
+  function replaceMember(memberId) {
+    showPublished = false
+    replacementTarget = memberId
+  }
+
+  function confirmReplacement(memberId, characterId) {
+    const result = placeInRoster(
+      benchMember(context.plan.team, replacementTarget),
+      { memberId, characterId, role: replacementEntry.role },
+      getRaid(app.data).targets,
+    )
+    if (result.error) return showToast(result.error)
+    rememberChange(
+      app.data,
+      setPlan(app.data, weekIso, {
+        start: context.plan.start,
+        team: result.team,
+        locked: context.plan.locked.filter((id) => id !== replacementTarget),
+      }),
+    )
+    replacementTarget = null
+    showToast('Replacement saved in the draft. Review and publish the change when ready.')
+  }
 
   function rememberChange(previous, next) {
     undoChange = {
@@ -102,10 +177,12 @@
 
   function publish() {
     if (officersOnly()) return
+    showIssues = true
     const previous = app.data
     const result = publishPlan(app.data, context.plan, players)
     if (result.error) return showToast(result.error)
     app.data = result.state
+    showIssues = false
     offerUndo('Roster published. Draft edits will stay separate.', previous)
     // A roster already in Discord follows what was just published.
     if (discordChannel.webhookUrl && postedIds.length) void postToDiscord()
@@ -117,6 +194,7 @@
     app.data = withdrawPlan(app.data)
     showPublished = false
     offerUndo('Published roster withdrawn. Your draft is kept.', previous)
+    if (discordChannel.webhookUrl && postedIds.length) void withdrawDiscordPost()
   }
 
   const totalSlots = $derived(settings.targets.reduce((sum, n) => sum + n, 0))
@@ -226,11 +304,21 @@
     app.data = setAttendance(app.data, weekIso, memberId, status)
   }
 
+  function markEveryone() {
+    if (officersOnly()) return
+    const previous = app.data
+    ensureSaved()
+    const next = markAllAttended(app.data, weekIso)
+    rememberChange(previous, next)
+    offerUndo('Unrecorded players marked attended. Existing exceptions kept.', previous)
+  }
+
   function markCancelled(cancelled) {
     if (officersOnly()) return
     ensureSaved()
     app.data = setCancelled(app.data, weekIso, cancelled)
     showToast(cancelled ? 'Raid marked as cancelled' : 'Raid marked as held')
+    if (published && discordChannel.webhookUrl && postedIds.length) void postToDiscord()
   }
 
   /** Messages to copy by hand when the clipboard API is unavailable (e.g. not a secure context). */
@@ -312,6 +400,26 @@
     }
   }
 
+  async function withdrawDiscordPost() {
+    if (posting) return
+    posting = true
+    try {
+      const ids = await postToWebhook(
+        discordChannel.webhookUrl,
+        [
+          '**ROSTER WITHDRAWN**\nThe officers are revising this raid. Check WhenToRaid for the next published roster.',
+        ],
+        { previousIds: discordChannel.posts[discordKey] ?? [] },
+      )
+      await rememberPost(discordKey, ids)
+      showToast('Discord post updated: roster withdrawn.')
+    } catch (error) {
+      showToast(error.message)
+    } finally {
+      posting = false
+    }
+  }
+
   function exportRoster() {
     downloadText(`whentoraid-${settings.id}-${weekIso}.txt`, rosterText(app.data, plan, players))
   }
@@ -321,16 +429,44 @@
   }
 </script>
 
+<svelte:window onfocus={() => (responsesTick += 1)} />
+
 <PageTitle
-  eyebrow="MAKE TIME FOR THE ADVENTURE"
-  title="Find your next raid night."
-  subtitle="Real lives. Different schedules. One raid team."
+  eyebrow={viewPublished ? 'PUBLISHED RAID' : 'RAID PLANNER'}
+  title={settings.name}
+  subtitle={viewPublished && !published ? 'Your officers have not published this raid yet.' : sessionLabel}
 />
 
 <WeekBar />
 <RaidSelector />
 <WeeklyOverview publishedOnly={viewPublished} />
 <section class="panel spaced-top" aria-label="Roster publication">
+  <div class="active-raid-summary">
+    <strong>{settings.name}</strong>
+    <span
+      >{published
+        ? viewPublished
+          ? 'Published roster'
+          : draftChanged
+            ? 'Draft changes pending'
+            : 'Draft matches published'
+        : 'Not published'}</span
+    >
+  </div>
+  {#if canManage() && !viewPublished && published && draftChanged}
+    <section class="publication-review" aria-label="Changes to publish">
+      <h3>Changes to publish</h3>
+      <ul>
+        {#each changes as change, i (i)}
+          <li>
+            {change.kind === 'time'
+              ? `Time: ${formatSessionIn(change.before, zone)} → ${formatSessionIn(change.after, zone)}`
+              : change.message}
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
   <div class="buttons">
     {#if canManage()}
       <button aria-pressed={!viewPublished} onclick={() => (showPublished = false)}>Edit draft</button>
@@ -377,7 +513,50 @@
     {/if}
   </p>
   {#if savedPlan?.cancelled}<p class="warning">This raid is cancelled.</p>{/if}
+  {#if canManage() && !viewPublished && showIssues && issues.length}
+    <section role="alert" class="publication-review">
+      <h3>Resolve before publishing</h3>
+      <ul>
+        {#each issues as issue, i (i)}
+          <li>
+            <span>{issue.message}</span>
+            {#if issue.memberId}
+              <button onclick={() => (dialog = { kind: 'player', memberId: issue.memberId })}
+                >Review {memberById(app.data, issue.memberId)?.name ?? 'player'}</button
+              >
+            {:else if issue.kind === 'capacity'}
+              <button onclick={() => (dialog = { kind: 'add', role: issue.role })}
+                >Review {issue.role} slots</button
+              >
+            {:else if issue.kind === 'empty'}
+              <button onclick={() => (dialog = { kind: 'add', role: ROLES[0] })}>Add a player</button>
+            {:else if issue.kind === 'cancelled'}
+              <button onclick={() => markCancelled(false)}>Restore raid</button>
+            {/if}
+            {#if issue.kind === 'overlap'}
+              <button
+                onclick={() => {
+                  app.data = setCurrentRaid(setCurrentWeek(app.data, issue.week), issue.raidId)
+                  showIssues = false
+                }}>Open overlapping raid</button
+              >
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 </section>
+{#if canManage() && published && !savedPlan?.cancelled && responses.key === responsesKey}
+  <RaidResponsesPanel
+    team={published.team}
+    byMember={responses.byMember}
+    error={responses.error}
+    canReplace={inDraft}
+    onreplace={replaceMember}
+    onrefresh={() => (responsesTick += 1)}
+  />
+{/if}
 {#if app.data.demoYear}
   <p class="note">
     Demo guild · Randomized availability and raid plans for all of {app.data.demoYear}. Load the demo again
@@ -485,6 +664,7 @@
           attendance={savedPlan?.attendance ?? {}}
           cancelled={savedPlan?.cancelled ?? false}
           onmark={markAttendance}
+          onall={markEveryone}
         />
       {/if}
     </div>
@@ -545,3 +725,44 @@
       onfocus={(e) => e.currentTarget.select()}></textarea>
   {/each}
 </Modal>
+
+<Modal open={replacementTarget !== null} onclose={() => (replacementTarget = null)}>
+  <h2>Replace {memberById(app.data, replacementTarget)?.name ?? 'player'}</h2>
+  <p>Available players offering the same role, excluding other published commitments.</p>
+  <div class="modal-list">
+    {#each replacements as option (option.character.id)}
+      <button onclick={() => confirmReplacement(option.player.id, option.character.id)}>
+        <strong>{characterById(app.data, option.character.id)?.name}</strong>
+        <small>{memberById(app.data, option.player.id)?.name} · {option.character.role}</small>
+      </button>
+    {:else}
+      <p class="note">
+        No eligible replacement for this role at this time. Review availability or choose another session.
+      </p>
+    {/each}
+  </div>
+</Modal>
+
+<style>
+  .active-raid-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .active-raid-summary span {
+    color: var(--gold);
+  }
+  .publication-review {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border-left: 2px solid var(--gold);
+    background: #ffffff05;
+  }
+  .publication-review li {
+    margin: 0.5rem 0;
+  }
+  .publication-review li button {
+    margin: 0.25rem;
+  }
+</style>

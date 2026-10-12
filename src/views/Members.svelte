@@ -4,7 +4,8 @@
   import PageTitle from '../components/PageTitle.svelte'
   import { app } from '../lib/app.svelte.js'
   import { attendanceRecord, formatRecord, RECORD_LOOKBACK_WEEKS } from '../lib/attendance.js'
-  import { CLASS_COLORS } from '../lib/constants.js'
+  import { CLASS_COLORS, ROLES } from '../lib/constants.js'
+  import { availabilitySource } from '../lib/personal-raids.js'
   import { setCurrentMember } from '../lib/members.js'
   import { charactersOf, getCheckin, memberById, tracksAttendance } from '../lib/model.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
@@ -12,6 +13,9 @@
 
   /** null: closed. { memberId: null }: adding. { memberId }: editing. */
   let editing = $state(null)
+  let search = $state('')
+  let roleFilter = $state('')
+  let responseFilter = $state('')
   const editingMember = $derived(editing?.memberId ? memberById(app.data, editing.memberId) : null)
 
   const weekIso = $derived(app.data.currentWeek)
@@ -21,18 +25,35 @@
       const mine = charactersOf(app.data, member.id)
       return {
         member,
+        characters: mine,
         main: mine.find((c) => c.main) ?? mine[0],
         alts: Math.max(0, mine.length - 1),
         status: weekStatus(getCheckin(app.data, weekIso, member.id)),
+        source: availabilitySource(app.data, weekIso, member.id),
         record: formatRecord(attendanceRecord(app.data, weekIso, member.id)),
       }
     }),
   )
+  const filteredRows = $derived(
+    rows.filter((row) => {
+      const query = search.trim().toLocaleLowerCase()
+      return (
+        (!query ||
+          [row.member.name, ...row.characters.map((character) => character.name)].some((name) =>
+            name.toLocaleLowerCase().includes(query),
+          )) &&
+        (!roleFilter || row.characters.some((character) => character.role === roleFilter)) &&
+        (!responseFilter ||
+          row.status.key === responseFilter ||
+          (responseFilter === 'usual' && row.source === 'Using usual schedule'))
+      )
+    }),
+  )
 
   function weekStatus(checkin) {
-    if (!checkin.checkedIn) return { label: 'Waiting', tone: 'gold' }
-    if (checkin.ranges.length === 0) return { label: 'Can’t make it', tone: 'muted' }
-    return { label: 'Checked in', tone: 'ok' }
+    if (!checkin.checkedIn) return { key: 'waiting', label: 'Waiting', tone: 'gold' }
+    if (checkin.ranges.length === 0) return { key: 'unavailable', label: 'Can’t make it', tone: 'muted' }
+    return { key: 'available', label: 'Checked in', tone: 'ok' }
   }
 
   function actAs(member) {
@@ -44,7 +65,9 @@
 <PageTitle
   eyebrow="EVERYONE WHO RAIDS WITH YOU"
   title="Guild members"
-  subtitle="Add your players, then act as any of them to fill in their availability and characters."
+  subtitle={canManage()
+    ? 'Add players and help them keep their availability and characters up to date.'
+    : 'Find your guildmates and see who has checked in this week.'}
 >
   {#snippet action()}
     {#if canManage()}
@@ -58,6 +81,24 @@
 {/if}
 
 <div class="panel member-table-wrap spaced-top">
+  <div class="member-filters" role="search" aria-label="Find guild members">
+    <label class="field">Search players or characters<input type="search" bind:value={search} /></label>
+    <label class="field"
+      >Role<select bind:value={roleFilter}
+        ><option value="">All roles</option>{#each ROLES as role (role)}<option value={role}>{role}</option
+          >{/each}</select
+      ></label
+    >
+    <label class="field"
+      >Check-in<select bind:value={responseFilter}
+        ><option value="">All responses</option><option value="waiting">Missing check-in</option><option
+          value="available">Available</option
+        ><option value="unavailable">Can’t make it</option><option value="usual">Using usual schedule</option
+        ></select
+      ></label
+    >
+  </div>
+  <p class="note" role="status">{filteredRows.length} of {rows.length} players</p>
   <table class="member-table">
     <thead>
       <tr>
@@ -69,7 +110,7 @@
       </tr>
     </thead>
     <tbody>
-      {#each rows as { member, main, alts, status, record } (member.id)}
+      {#each filteredRows as { member, main, alts, status, source, record } (member.id)}
         {@const isMe = member.id === app.data.currentMemberId}
         <tr>
           <th scope="row">
@@ -87,7 +128,9 @@
               >
             {/if}
           </td>
-          <td data-label="This week"><span class={status.tone}>{status.label}</span></td>
+          <td data-label="This week"
+            ><span class={status.tone}>{status.label}</span><small>{source}</small></td
+          >
           {#if showAttendance}<td data-label="Attendance">{record ?? '—'}</td>{/if}
           <td class="row-actions">
             {#if canManage()}
@@ -101,6 +144,7 @@
       {/each}
     </tbody>
   </table>
+  {#if !filteredRows.length}<p>No players match these filters.</p>{/if}
 </div>
 
 <p class="note">
@@ -115,3 +159,18 @@
 </p>
 
 <MemberDialog open={editing !== null} member={editingMember} onclose={() => (editing = null)} />
+
+<style>
+  .member-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .member-filters label {
+    flex: 1 1 10rem;
+  }
+  .member-filters label:first-child {
+    flex: 2 1 16rem;
+  }
+</style>

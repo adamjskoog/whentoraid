@@ -1,7 +1,8 @@
 <script>
   import { DAYS } from '../lib/constants.js'
   import { displayZone } from '../lib/display.svelte.js'
-  import { formatRowLabel } from '../lib/grid.js'
+  import { formatRowLabel, slotWindow } from '../lib/grid.js'
+  import { exactSessionLabel } from '../lib/personal-raids.js'
   import { addDays, dayOfMonth } from '../lib/time.js'
 
   /**
@@ -23,7 +24,9 @@
     {#if dayHead}
       {@render dayHead(day)}
     {:else}
-      <div class="day">{dayName.toUpperCase()}<small>{dayOfMonth(addDays(weekIso, day))}</small></div>
+      <div class="day" title={exactSessionLabel(slotWindow(weekIso, day, 0, grid.slotsPerDay, grid), zone)}>
+        {dayName.toUpperCase()}<small>{dayOfMonth(addDays(weekIso, day))}</small>
+      </div>
     {/if}
   {/each}
   {#each slots as slot (slot)}

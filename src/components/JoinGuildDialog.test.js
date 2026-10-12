@@ -43,7 +43,7 @@ describe('joining from an invite link', () => {
       guildId: 'guild-1',
       guildName: 'The After Hours',
       alreadyMember: false,
-      openPlayers: [{ id: 'm-nova', name: 'Nova' }],
+      openPlayers: [],
     })
   })
 
@@ -78,11 +78,18 @@ describe('joining from an invite link', () => {
     expect(sessionStorage.getItem('whentoraid-invite')).toBeNull()
   })
 
-  test('a listed player claims their name', async () => {
+  test('a personal link claims only its named player without a profile picker', async () => {
+    api.inviteDetails.mockResolvedValueOnce({
+      guildId: 'guild-1',
+      guildName: 'The After Hours',
+      alreadyMember: false,
+      openPlayers: [{ id: 'm-nova', name: 'Nova' }],
+    })
     openInviteLink()
     render(JoinGuildDialog)
     await loadInvite()
-    await fireEvent.change(await screen.findByLabelText('Who are you?'), { target: { value: 'm-nova' } })
+    expect(await screen.findByText(/personal invite for Nova/)).toBeTruthy()
+    expect(screen.queryByRole('combobox')).toBeNull()
     expect(screen.queryByLabelText('Your name in the guild')).toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: 'Join guild' }))
     await vi.waitFor(() =>
@@ -98,7 +105,7 @@ describe('joining from an invite link', () => {
     openInviteLink()
     render(JoinGuildDialog)
     await loadInvite()
-    await fireEvent.change(await screen.findByLabelText('Who are you?'), { target: { value: 'm-nova' } })
+    await screen.findByLabelText('Your name in the guild')
     await fireEvent.click(screen.getByRole('button', { name: 'Join guild' }))
     expect((await screen.findByRole('alert')).textContent).toMatch(/already claimed/)
     expect(invite.code).toBe(CODE)

@@ -17,7 +17,17 @@ function isBetter(a, b) {
 
 /** A player counts only if they checked in this week and are free for the entire session. */
 export function isAvailable(player, window) {
-  return Boolean(player.checkedIn) && window.end > window.start && covers(player.ranges, window)
+  return (
+    Boolean(player.checkedIn) &&
+    window.end > window.start &&
+    covers(player.ranges, window) &&
+    overlappingCommitments(player, window).length === 0
+  )
+}
+
+/** Published assignments reserve a player, including on their alts and across week boundaries. */
+export function overlappingCommitments(player, window) {
+  return (player.commitments ?? []).filter((other) => other.start < window.end && other.end > window.start)
 }
 
 /**
@@ -84,7 +94,8 @@ export function conflicts(entry, players, window) {
   if (!player || !character) return ['Character missing']
 
   return [
-    ...(isAvailable(player, window) ? [] : ['Unavailable for full session']),
+    ...(player.checkedIn && covers(player.ranges, window) ? [] : ['Unavailable for full session']),
+    ...overlappingCommitments(player, window).map((other) => `Committed to ${other.raidName}`),
     ...(character.offered ? [] : ['Character not offered']),
     ...(character.role === entry.role ? [] : ['Role mismatch']),
   ]

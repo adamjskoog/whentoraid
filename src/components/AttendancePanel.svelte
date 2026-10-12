@@ -8,7 +8,7 @@
    * After the raid: record who attended, was late, or did not show. A cancelled raid has nothing to record.
    * `onmark(memberId, status | null)` clicking the pressed status again clears it.
    */
-  let { team, attendance = {}, cancelled = false, onmark } = $props()
+  let { team, attendance = {}, cancelled = false, onmark, onall } = $props()
 
   const recorded = $derived(team.filter((e) => attendance[e.memberId]).length)
 </script>
@@ -26,6 +26,10 @@
       </div>
     </div>
     {#if !cancelled}
+      {#if onall}
+        <button onclick={onall} disabled={recorded === team.length}>Mark everyone attended</button>
+        <p class="note">Recorded late and no-show exceptions are kept. Undo is available after marking.</p>
+      {/if}
       <ul class="attendance-list">
         {#each team as entry (entry.memberId)}
           {@const member = memberById(app.data, entry.memberId)}

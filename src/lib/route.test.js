@@ -10,10 +10,10 @@ describe('parseHash', () => {
     expect(parseHash('#/planner/2026-10-08').week).toBe('2026-10-05')
   })
 
-  test('falls back to the planner and no week for empty or unknown hashes', () => {
-    expect(parseHash('')).toEqual({ view: 'planner', week: null })
-    expect(parseHash('#/admin/not-a-date')).toEqual({ view: 'planner', week: null })
-    expect(parseHash(undefined)).toEqual({ view: 'planner', week: null })
+  test('falls back to My raids and no week for empty or unknown hashes', () => {
+    expect(parseHash('')).toEqual({ view: 'home', week: null })
+    expect(parseHash('#/admin/not-a-date')).toEqual({ view: 'home', week: null })
+    expect(parseHash(undefined)).toEqual({ view: 'home', week: null })
   })
 
   test('accepts a page without a week', () => {

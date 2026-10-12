@@ -38,6 +38,18 @@ export function setCancelled(state, weekIso, cancelled) {
   return withPlan(state, weekIso, (current) => ({ ...current, cancelled }))
 }
 
+/** Fill unrecorded attendance; late/no-show exceptions are deliberately retained. */
+export function markAllAttended(state, weekIso) {
+  if (getWeek(state, weekIso).plan?.cancelled) return state
+  return withPlan(state, weekIso, (current) => ({
+    ...current,
+    attendance: {
+      ...Object.fromEntries(current.team.map((entry) => [entry.memberId, 'attended'])),
+      ...current.attendance,
+    },
+  }))
+}
+
 /**
  * A member's recorded attendance over the last `lookback` weeks, ending with `weekIso`.
  * Cancelled raids and rostered weeks with nothing recorded are left out.

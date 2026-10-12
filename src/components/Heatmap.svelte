@@ -2,7 +2,7 @@
   import { ROLES } from '../lib/constants.js'
   import { isAvailable } from '../lib/engine.js'
   import { displayZone } from '../lib/display.svelte.js'
-  import { formatSlotDay } from '../lib/grid.js'
+  import { formatSlotDay, slotWindow } from '../lib/grid.js'
   import { focusCell, nextCell } from '../lib/grid-nav.js'
   import { formatMissing, missingRoles } from '../lib/planning.js'
   import WeekGrid from './WeekGrid.svelte'
@@ -33,6 +33,19 @@
   let container
 
   const zone = $derived(displayZone(grid))
+  const inspected = $derived(focused ?? { day: selection.day, slot: selection.startSlot })
+  const exactWindow = $derived(slotWindow(weekIso, inspected.day, inspected.slot, durationSlots, grid))
+  const exactTime = (time) =>
+    new Date(time).toLocaleString('en-US', {
+      timeZone: zone,
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    })
   const totalSlots = $derived(targets.reduce((sum, n) => sum + n, 0))
   const eligible = $derived(players.filter((p) => p.checkedIn && p.characters.some((c) => c.offered)))
   const cells = $derived(new Map(suggestions.map((s) => [`${s.day}:${s.startSlot}`, describe(s)])))
@@ -108,7 +121,10 @@
     title={label}
     onfocus={() => (focused = { day, slot })}
     onkeydown={(e) => navigate(e, day, slot)}
-    onclick={() => onselect(day, slot)}>{info ? info.text || '·' : '–'}</button
+    onclick={() => {
+      focused = { day, slot }
+      onselect(day, slot)
+    }}>{info ? info.text || '·' : '–'}</button
   >
 {/snippet}
 
@@ -133,3 +149,6 @@
   </span>
   <span>Fewer <i></i> More</span>
 </div>
+<p class="note" role="status">
+  Selected time: {exactTime(exactWindow.start)} – {exactTime(exactWindow.end)}.
+</p>

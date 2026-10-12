@@ -6,7 +6,10 @@ import { createSeedState } from '../lib/seed.js'
 import Availability from './Availability.svelte'
 
 // An online player, not an officer.
-vi.mock('../lib/remote/sync.svelte.js', () => ({ canManage: () => false }))
+vi.mock('../lib/remote/sync.svelte.js', () => ({
+  canManage: () => false,
+  remote: { guildId: 'test', status: 'saved' },
+}))
 
 // The week of Oct 5 closed on Wednesday Oct 7, 6 pm Los Angeles time (Oct 8, 01:00 UTC).
 const CLOSED_WEEK = '2026-10-05'

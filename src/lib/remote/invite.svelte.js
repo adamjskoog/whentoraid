@@ -89,6 +89,10 @@ export async function loadInvite() {
  * Throws a message fit for a toast; the invite stays open to try again.
  */
 export async function acceptInvite({ memberId = null, name = '' }) {
+  const offered = invite.details?.openPlayers ?? []
+  if (memberId !== (offered[0]?.id ?? null) || offered.length > 1) {
+    throw new Error('Ask an officer for a personal invite to this player.')
+  }
   const trimmed = name.trim()
   if (!memberId && !trimmed) throw new Error('Enter the name your guild knows you by.')
   if (trimmed.length > MAX_NAME) throw new Error(`Names can be at most ${MAX_NAME} characters.`)

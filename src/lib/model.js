@@ -141,6 +141,14 @@ function withCheckin(state, weekIso, memberId, update) {
   }))
 }
 
+/** Put back one member's saved check-in for a week; `undefined` returns them to their usual schedule. */
+export function restoreCheckin(state, weekIso, memberId, checkin) {
+  return updateWeek(state, weekIso, (week) => {
+    const { [memberId]: _current, ...others } = week.checkins
+    return { ...week, checkins: checkin ? { ...others, [memberId]: checkin } : others }
+  })
+}
+
 // Check-ins save as they are edited: any change counts immediately and marks the member as checked in.
 export function setSlotAvailable(state, weekIso, memberId, interval, available) {
   return withCheckin(state, weekIso, memberId, (checkin) => ({

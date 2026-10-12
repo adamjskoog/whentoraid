@@ -7,7 +7,7 @@ import { addDays, mondayOf, todayIso } from '../time.js'
 import { showToast } from '../toast.svelte.js'
 import { applyOps, createGuildWithRows, fetchGuild, listGuilds, myDiscordId } from './api.js'
 import { isLocalBackend, supabase } from './client.js'
-import { diffRows, rowsToState, stateToRows, TABLES } from './rows.js'
+import { diffRows, mergeRows, rowsToState, stateToRows, TABLES } from './rows.js'
 
 /**
  * Online guilds. While a guild is open, `app.data` still holds the whole guild and every change
@@ -46,6 +46,8 @@ export const remote = $state({
 
 /** Rows the server is believed to hold for the open guild; changes are diffed against it. */
 let shadow = null
+/** Last confirmed server rows, distinct from the optimistic queue's shadow. */
+let committed = null
 let queue = Promise.resolve()
 let pending = 0
 const revisions = Object.create(null)
@@ -56,6 +58,7 @@ let reloadTimer
 let sessionUserId = null
 let sessionGeneration = 0
 let unsavedDraft = null
+let draftBase = null
 /** Where the offered draft is stored: this page's own key, or a closed page's key it took over. */
 let unsavedDraftKey = null
 let reapplyRequested = null
@@ -156,6 +159,7 @@ function preserveDraft(needsReview = true) {
     guildId: remote.guildId,
     savedAt: Date.now(),
     state: $state.snapshot(app.data),
+    base: draftBase ?? committed,
   }
   try {
     localStorage.setItem(draftKey(), JSON.stringify(unsavedDraft))
@@ -179,6 +183,7 @@ function preserveDraft(needsReview = true) {
 function clearDraft() {
   const keys = [draftKey(), unsavedDraftKey]
   unsavedDraft = null
+  draftBase = null
   unsavedDraftKey = null
   remote.hasUnsavedDraft = false
   reapplyRequested = null
@@ -209,12 +214,28 @@ export function reapplyUnsavedDraft() {
     showToast('This edit cannot be read by this version of WhenToRaid. Download it instead.')
     return
   }
-  if (!diffRows(shadow, stateToRows(unsavedDraft.state, remote.guildId)).length) {
+  if (!unsavedDraft.base) {
+    showToast(
+      'This older draft has no change history. Download it and copy your edits into the latest guild.',
+    )
+    return
+  }
+  let recovered
+  try {
+    recovered = mergeRows(unsavedDraft.base, stateToRows(unsavedDraft.state, remote.guildId), shadow, {
+      reviewed: true,
+    })
+  } catch {
+    showToast('This edit removes a player whose records changed. Download it and review those changes first.')
+    return
+  }
+  if (!diffRows(shadow, recovered).length) {
     dismissUnsavedDraft()
     return
   }
   reapplyRequested = draftKey()
-  app.data = unsavedDraft.state
+  draftBase = shadow
+  app.data = withViewer(rowsToState(recovered, app.data))
 }
 
 export function dismissUnsavedDraft() {
@@ -225,9 +246,19 @@ export function dismissUnsavedDraft() {
 }
 
 async function finishPendingSaves() {
+  return flushOnlineChanges()
+}
+
+/** Wait for all edits to commit before leaving or starting an external side effect. */
+export async function flushOnlineChanges() {
   // Let App's save effect enqueue a just-made edit before checking the queue.
   await tick()
-  await queue
+  let waiting
+  do {
+    waiting = queue
+    await waiting
+    await tick()
+  } while (waiting !== queue)
   if (remote.hasUnsavedDraft) {
     throw new Error('An online edit was not saved. Download or reapply it before leaving this guild.')
   }
@@ -394,6 +425,7 @@ export async function openGuild(guildId, expectedGeneration = sessionGeneration)
   // Start as yourself, not whoever you were acting as in another guild.
   const state = withViewer(rowsToState(rows, { currentWeek: week, currentMemberId: '' }))
   shadow = stateToRows(state, guildId)
+  committed = shadow
   revisions[guildId] = rows.revision
   saveEpochs[guildId] = (saveEpochs[guildId] ?? 0) + 1
   delete blockedGuilds[guildId]
@@ -417,10 +449,12 @@ export function closeGuild(preserveStoredGuild = false) {
   channel = null
   clearTimeout(reloadTimer)
   shadow = null
+  committed = null
   const wasOnline = remote.guildId !== null
   Object.assign(remote, { guildId: null, memberId: null, officer: false, status: 'saved' })
   remote.hasUnsavedDraft = false
   unsavedDraft = null
+  draftBase = null
   unsavedDraftKey = null
   reapplyRequested = null
   if (!preserveStoredGuild) storeGuildId(null)
@@ -474,8 +508,10 @@ export function pushChanges(state) {
   const epoch = saveEpochs[guildId]
   const ownerUserId = sessionUserId
   const next = stateToRows(state, guildId)
+  const before = shadow
   const ops = diffRows(shadow, next)
   if (!ops.length) return
+  if (!pending) draftBase = before
   // Keep a copy that survives closing the tab mid-save; storage may be unavailable.
   preserveDraft(false)
   shadow = next
@@ -484,10 +520,29 @@ export function pushChanges(state) {
   queue = queue.then(async () => {
     try {
       if (blockedGuilds[guildId] || saveEpochs[guildId] !== epoch || sessionUserId !== ownerUserId) return
-      const revision = await applyOps(supabase, guildId, revisions[guildId], ops)
-      if (saveEpochs[guildId] !== epoch || sessionUserId !== ownerUserId) return
-      revisions[guildId] = revision
+      for (let attempt = 0; ; attempt += 1) {
+        const merged = mergeRows(before, next, committed)
+        try {
+          const revision = await applyOps(supabase, guildId, revisions[guildId], diffRows(committed, merged))
+          if (saveEpochs[guildId] !== epoch || sessionUserId !== ownerUserId) return
+          revisions[guildId] = revision
+          committed = merged
+          break
+        } catch (error) {
+          if (error.code !== '40001' || attempt >= 2) throw error
+          const latest = await fetchGuild(supabase, guildId, sinceWeek())
+          if (saveEpochs[guildId] !== epoch || sessionUserId !== ownerUserId) return
+          committed = stateToRows(rowsToState(latest, app.data), guildId)
+          revisions[guildId] = latest.revision
+        }
+      }
       if (remote.guildId === guildId && pending === 1) {
+        // Bring independent remote changes into view, retaining edits made during this save.
+        const visible = mergeRows(next, stateToRows(app.data, guildId), committed)
+        shadow = committed
+        if (diffRows(stateToRows(app.data, guildId), visible).length) {
+          app.data = withViewer(rowsToState(visible, app.data))
+        }
         const reapplied = reapplyRequested !== null
         clearDraft()
         if (reapplied) void showDraftForOpenGuild()
@@ -576,6 +631,7 @@ async function reload() {
   }
   const fresh = stateToRows(state, guildId)
   shadow = fresh
+  committed = fresh
   revisions[guildId] = rows.revision
   delete blockedGuilds[guildId]
   remote.status = remote.hasUnsavedDraft ? 'error' : 'saved'

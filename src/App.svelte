@@ -26,8 +26,11 @@
   import Planner from './views/Planner.svelte'
   import Settings from './views/Settings.svelte'
   import Setup from './views/Setup.svelte'
+  import Home from './views/Home.svelte'
+  import { localSave } from './lib/save-status.svelte.js'
 
   const VIEW_TITLES = {
+    home: 'My raids',
     planner: 'Raid planner',
     availability: 'My availability',
     characters: 'My characters',
@@ -51,8 +54,12 @@
       pushChanges(snapshot)
       return
     }
-    if (savingPaused) return
+    if (savingPaused) {
+      localSave.status = 'error'
+      return
+    }
     const saved = saveState(snapshot)
+    localSave.status = saved ? 'saved' : 'error'
     if (!saved && !storageWarningShown) {
       storageWarningShown = true
       showToast('Browser storage is unavailable. Changes last only until this page closes.')
@@ -174,7 +181,9 @@
         </section>
       {/if}
       <div inert={remote.hasUnsavedDraft}>
-        {#if app.view === 'availability'}
+        {#if app.view === 'home'}
+          <Home />
+        {:else if app.view === 'availability'}
           <Availability />
         {:else if app.view === 'characters'}
           <Characters />

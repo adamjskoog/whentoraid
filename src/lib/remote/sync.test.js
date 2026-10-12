@@ -13,6 +13,7 @@ const mocked = vi.hoisted(() => ({
   applyGate: null,
   applied: 0,
   signOutCalls: 0,
+  applyHandler: null,
 }))
 
 vi.mock('./client.js', () => ({
@@ -48,9 +49,10 @@ vi.mock('./api.js', () => ({
     if (mocked.fetchError) throw new Error('Offline')
     return mocked.rows
   },
-  applyOps: async () => {
+  applyOps: async (...args) => {
     if (mocked.applyGate) await mocked.applyGate
     mocked.applied += 1
+    if (mocked.applyHandler) return mocked.applyHandler(...args)
     if (mocked.applyError) throw new Error('Rejected save')
     return 1
   },
@@ -60,6 +62,7 @@ vi.mock('./api.js', () => ({
 import { app } from '../app.svelte.js'
 import {
   dismissUnsavedDraft,
+  flushOnlineChanges,
   initRemote,
   pushChanges,
   reapplyUnsavedDraft,
@@ -77,6 +80,70 @@ function storedDraft(userId, guildId) {
 afterEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  mocked.applyHandler = null
+  mocked.applied = 0
+})
+
+async function openConcurrencyGuild(identity) {
+  const state = createSeedState()
+  state.members[0] = { ...state.members[0], discordId: identity, officer: true }
+  mocked.rows = { ...stateToRows(state, 'guild-test'), revision: 0 }
+  Object.assign(mocked, { fetchError: false, applyError: false, applyGate: null })
+  localStorage.setItem('whentoraid-online-guild', 'guild-test')
+  const stop = initRemote()
+  mocked.discordId = identity
+  mocked.onAuthStateChange('SIGNED_IN', { user: { id: identity } })
+  await waitFor(() => expect(remote.discordId).toBe(identity))
+  await waitFor(() => expect(remote.guildId).toBe('guild-test'))
+  return stop
+}
+
+test('independent edits retry with the fresh revision and keep queued edits and remote rows', async () => {
+  const stop = await openConcurrencyGuild('concurrency-a')
+  const original = app.data
+  const remoteMember = original.members[1].id
+  mocked.rows.members = mocked.rows.members.map((row) =>
+    row.id === remoteMember ? { ...row, name: 'Saved by another player' } : row,
+  )
+  mocked.rows.revision = 1
+  const calls = []
+  mocked.applyHandler = async (_client, _guild, revision, ops) => {
+    calls.push({ revision, ops })
+    if (revision === 0) throw Object.assign(new Error('Stale'), { code: '40001' })
+    return revision + 1
+  }
+  app.data = { ...original, guild: { ...original.guild, name: 'Our guild' } }
+  pushChanges(app.data)
+  app.data = {
+    ...app.data,
+    members: app.data.members.map((member, i) => (i === 2 ? { ...member, name: 'Queued edit' } : member)),
+  }
+  pushChanges(app.data)
+  await flushOnlineChanges()
+  expect(calls.map(({ revision }) => revision)).toEqual([0, 1, 2])
+  expect(app.data.guild.name).toBe('Our guild')
+  expect(app.data.members[1].name).toBe('Saved by another player')
+  expect(app.data.members[2].name).toBe('Queued edit')
+  expect(remote.status).toBe('saved')
+  expect(remote.hasUnsavedDraft).toBe(false)
+  stop()
+})
+
+test('a same-row conflict preserves the local draft and flush refuses side effects', async () => {
+  const stop = await openConcurrencyGuild('concurrency-b')
+  mocked.rows.guilds[0] = { ...mocked.rows.guilds[0], name: 'Their guild' }
+  mocked.rows.revision = 1
+  mocked.applyHandler = async () => {
+    throw Object.assign(new Error('Stale'), { code: '40001' })
+  }
+  app.data = { ...app.data, guild: { ...app.data.guild, name: 'My guild' } }
+  pushChanges(app.data)
+  await expect(flushOnlineChanges()).rejects.toThrow(/not saved/)
+  expect(JSON.parse(storedDraft('concurrency-b', 'guild-test')).state.guild.name).toBe('My guild')
+  await waitFor(() => expect(app.data.guild.name).toBe('Their guild'))
+  expect(remote.hasUnsavedDraft).toBe(true)
+  dismissUnsavedDraft()
+  stop()
 })
 
 test('switching directly between signed-in identities replaces the guild viewer', async () => {

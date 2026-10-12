@@ -3,9 +3,8 @@
   import { acceptInvite, dismissInvite, invite } from '../lib/remote/invite.svelte.js'
   import { remote, signIn } from '../lib/remote/sync.svelte.js'
 
-  /** Joining a guild from an invite link: sign in, then pick your name on the list or add yourself. */
-  const NEW_PLAYER = ''
-  let choice = $state(NEW_PLAYER)
+  /** Personal links name a single profile; general links create a new member. */
+  const player = $derived(invite.details?.openPlayers[0] ?? null)
   let name = $state('')
 
   // Offer the Discord display name once the invite has loaded.
@@ -20,7 +19,7 @@
     event.preventDefault()
     error = null
     try {
-      await acceptInvite({ memberId: choice || null, name })
+      await acceptInvite({ memberId: player?.id ?? null, name })
     } catch (failure) {
       error = failure.message
     }
@@ -44,19 +43,19 @@
   {:else if invite.details && (invite.status === 'ready' || invite.status === 'joining')}
     <h2>Join {invite.details.guildName}</h2>
     <form onsubmit={join}>
-      {#if invite.details.openPlayers.length}
-        <p>If an officer already added you, pick your name so your characters and history stay with you.</p>
-        <label class="field">
-          Who are you?
-          <select bind:value={choice}>
-            <option value={NEW_PLAYER}>I’m not on the list</option>
-            {#each invite.details.openPlayers as player (player.id)}
-              <option value={player.id}>{player.name}</option>
-            {/each}
-          </select>
-        </label>
-      {/if}
-      {#if choice === NEW_PLAYER}
+      {#if player}
+        <p>
+          This is a personal invite for {player.name}. Joining links your Discord account to their characters
+          and history.
+        </p>
+        <p class="note">
+          If this is not your profile, close this dialog and ask an officer for your own link.
+        </p>
+      {:else}
+        <p>
+          Join as a new player. If an officer already added your profile, ask them for a personal invite to
+          keep your characters and history.
+        </p>
         <label class="field">
           Your name in the guild
           <input required maxlength="30" autocomplete="nickname" bind:value={name} />

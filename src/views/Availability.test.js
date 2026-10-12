@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/svelte'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { app } from '../lib/app.svelte.js'
-import { getCheckin, setCurrentWeek } from '../lib/model.js'
+import { getCheckin, markUnavailable, setCurrentWeek } from '../lib/model.js'
 import { slotWindow } from '../lib/grid.js'
 import { createSeedState, SEED_WEEK } from '../lib/seed.js'
+import { runToastAction, toast } from '../lib/toast.svelte.js'
 import Availability from './Availability.svelte'
 
 const NEW_WEEK = '2026-10-05'
@@ -66,5 +67,50 @@ describe('Availability view', () => {
     expect(screen.queryByText(/can’t place you/)).toBeNull()
     for (const box of screen.getAllByRole('checkbox')) await fireEvent.click(box)
     expect(screen.getByText(/can’t place you/)).toBeTruthy()
+  })
+
+  test('a whole paint gesture is one undo and day clearing can also be undone', async () => {
+    const { container } = render(Availability)
+    const cell = container.querySelector('[data-paint-cell][data-day="4"][data-slot="12"]')
+    await fireEvent.pointerDown(cell, { pointerType: 'touch', pointerId: 1 })
+    await fireEvent.pointerUp(window, { pointerType: 'touch', pointerId: 1 })
+    expect(getCheckin(app.data, NEW_WEEK, 'm0').ranges).toHaveLength(1)
+    runToastAction()
+    expect(getCheckin(app.data, NEW_WEEK, 'm0').checkedIn).toBe(false)
+    await fireEvent.click(screen.getByRole('button', { name: 'Mark Wed available' }))
+    runToastAction()
+    expect(getCheckin(app.data, NEW_WEEK, 'm0').ranges).toEqual([])
+  })
+
+  test('the time range editor adds an exact interval and unavailable can be undone', async () => {
+    render(Availability)
+    await fireEvent.click(screen.getByRole('button', { name: 'Time ranges' }))
+    const interval = slotWindow(NEW_WEEK, 1, 10, 4, app.data.guild)
+    await fireEvent.change(screen.getByLabelText('Tue from'), { target: { value: String(interval.start) } })
+    await fireEvent.change(screen.getByLabelText('Tue until'), { target: { value: String(interval.end) } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Add times for Tue' }))
+    expect(getCheckin(app.data, NEW_WEEK, 'm0').ranges).toEqual([interval])
+    await fireEvent.click(screen.getByRole('button', { name: 'Can’t make it this week' }))
+    expect(getCheckin(app.data, NEW_WEEK, 'm0').ranges).toEqual([])
+    runToastAction()
+    expect(getCheckin(app.data, NEW_WEEK, 'm0').ranges).toEqual([interval])
+  })
+})
+
+describe('Availability undo with other people editing', () => {
+  beforeEach(() => {
+    app.data = setCurrentWeek(createSeedState(), NEW_WEEK)
+  })
+
+  test('undo restores only my check-in and keeps another player’s change made meanwhile', async () => {
+    const mine = getCheckin(app.data, NEW_WEEK, app.data.currentMemberId)
+    render(Availability)
+    await fireEvent.click(screen.getByRole('button', { name: 'Can’t make it this week' }))
+    const other = app.data.members.find((m) => m.id !== app.data.currentMemberId).id
+    app.data = markUnavailable(app.data, app.data.currentWeek, other)
+    runToastAction()
+    expect(getCheckin(app.data, app.data.currentWeek, other)).toMatchObject({ checkedIn: true, ranges: [] })
+    expect(toast.message).toBe('Undone.')
+    expect(getCheckin(app.data, NEW_WEEK, app.data.currentMemberId)).toEqual(mine)
   })
 })

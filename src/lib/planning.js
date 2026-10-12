@@ -4,6 +4,7 @@ import { clampStartSlot, sessionWindows, slotWindow } from './grid.js'
 import { enginePlayers, getWeek, saveSettings, setPlan } from './model.js'
 import { addDays } from './time.js'
 import { getRaid } from './raids.js'
+import { planWindow } from './raid-workflow.js'
 
 /** How many previous weeks count toward bench fairness. */
 export const BENCH_LOOKBACK_WEEKS = 4
@@ -113,7 +114,35 @@ export function resolvePlan(savedPlan, windows, suggestions) {
 /** This week's players, each with a `priority` from recent bench history. */
 export function plannerPlayers(state) {
   const history = benchHistory(state, state.currentWeek)
-  return enginePlayers(state, state.currentWeek).map((p) => ({ ...p, priority: history.get(p.id) ?? 0 }))
+  const commitments = new Map()
+  // Only neighbouring weeks can overlap this week's sessions (a raid may cross midnight into the next week).
+  const from = addDays(state.currentWeek, -7)
+  const to = addDays(state.currentWeek, 7)
+  for (const [week, data] of Object.entries(state.weeks)) {
+    if (week < from || week > to) continue
+    for (const [raidId, draft] of Object.entries(data.plans)) {
+      if (week === state.currentWeek && raidId === state.currentRaidId) continue
+      if (!draft.published || draft.cancelled) continue
+      const plan = draft.published
+      const { start, end } = planWindow(state, raidId, plan)
+      for (const entry of plan.team) {
+        const booked = commitments.get(entry.memberId) ?? []
+        booked.push({
+          start,
+          end,
+          raidId,
+          week,
+          raidName: plan.raidName ?? getRaid(state, raidId).name,
+        })
+        commitments.set(entry.memberId, booked)
+      }
+    }
+  }
+  return enginePlayers(state, state.currentWeek).map((p) => ({
+    ...p,
+    priority: history.get(p.id) ?? 0,
+    commitments: commitments.get(p.id) ?? [],
+  }))
 }
 
 export function plannerContext(state) {
