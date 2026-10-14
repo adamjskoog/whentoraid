@@ -87,8 +87,12 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   if (request.method !== 'GET') return
   const url = new URL(request.url)
-  if (request.mode === 'navigate' && url.origin === self.location.origin) {
+  // Only the app page itself is cached as the offline page; other pages (privacy, terms) are not.
+  const appPage = /\/(index\.html)?$/.test(url.pathname)
+  if (request.mode === 'navigate' && url.origin === self.location.origin && appPage) {
     event.respondWith(networkFirstPage(request))
+  } else if (request.mode === 'navigate') {
+    return
   } else if (FONT_HOSTS.includes(url.hostname) || /\/assets\//.test(url.pathname)) {
     event.respondWith(cacheFirst(request))
   } else if (url.origin === self.location.origin) {

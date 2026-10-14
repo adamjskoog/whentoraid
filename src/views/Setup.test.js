@@ -23,6 +23,12 @@ describe('first-run setup', () => {
     expect(screen.getByRole('heading', { name: 'Set up your guild' })).toBeTruthy()
   })
 
+  test('setup links to the privacy policy and terms of service', () => {
+    render(App)
+    expect(screen.getByRole('link', { name: 'Privacy Policy' }).getAttribute('href')).toBe('./privacy.html')
+    expect(screen.getByRole('link', { name: 'Terms of Service' }).getAttribute('href')).toBe('./terms.html')
+  })
+
   test('creating a guild makes you its only member and opens the personal dashboard', async () => {
     render(App)
     await fill('Guild name', 'Night Shift')
