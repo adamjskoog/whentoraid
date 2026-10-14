@@ -33,9 +33,9 @@ test('an officer connects a Discord channel and posts the published roster there
   expect(requests[0].body.content).toContain('WhenToRaid is connected')
 
   await page.goto('./#/planner')
+  // Publishing posts the roster too while "Also post to Discord" is ticked (the default).
+  await expect(page.getByRole('checkbox', { name: 'Also post to Discord' })).toBeChecked()
   await page.getByRole('button', { name: 'Publish roster' }).click()
-  await expand(page, 'Publication & sharing options')
-  await page.getByRole('button', { name: 'Post to Discord' }).click()
   await expect(page.getByText('Roster posted to Discord.')).toBeVisible()
   expect(requests[1]).toMatchObject({ method: 'POST', url: `${HOOK}?wait=true` })
   expect(requests[1].body.content).toContain('**PUBLISHED ROSTER**')

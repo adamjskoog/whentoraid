@@ -185,6 +185,22 @@ describe('Planner posting to Discord', () => {
     expect(screen.queryByRole('button', { name: 'Post to Discord' })).toBeNull()
   })
 
+  test('unticking "Also post to Discord" publishes quietly; posting stays one click away', async () => {
+    localStorage.setItem(
+      'whentoraid-discord-channel',
+      JSON.stringify({ webhookUrl: HOOK, mentionPlayers: false, posts: {} }),
+    )
+    const fetchFn = vi.fn()
+    vi.stubGlobal('fetch', fetchFn)
+    render(Planner)
+
+    await fireEvent.click(await screen.findByRole('checkbox', { name: 'Also post to Discord' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish roster' }))
+    expect(await screen.findByRole('button', { name: 'Post to Discord' })).toBeTruthy()
+    expect(fetchFn).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
   test('the published roster is posted, then republishing edits the same message', async () => {
     localStorage.setItem(
       'whentoraid-discord-channel',
@@ -198,9 +214,11 @@ describe('Planner posting to Discord', () => {
     vi.stubGlobal('fetch', fetchFn)
     render(Planner)
 
+    // With a channel connected, publishing posts the roster too.
+    expect(screen.getByRole('checkbox', { name: 'Also post to Discord' }).checked).toBe(true)
     await fireEvent.click(screen.getByRole('button', { name: 'Publish roster' }))
-    await fireEvent.click(await screen.findByRole('button', { name: 'Post to Discord' }))
     await vi.waitFor(() => expect(toast.message).toBe('Roster posted to Discord.'))
+    expect(screen.queryByRole('checkbox', { name: 'Also post to Discord' })).toBeNull()
     const [url, init] = fetchFn.mock.calls[0]
     expect(url).toBe(`${HOOK}?wait=true`)
     expect(JSON.parse(init.body).content).toContain('**PUBLISHED ROSTER**')

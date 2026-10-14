@@ -31,7 +31,7 @@ describe('server Discord delivery', () => {
   test('a post saves pending edits first, then queues and sends it', async () => {
     await watchDelivery('2026-10-12', 'raid-20')
     calls.length = 0
-    expect(await queueAndSend('2026-10-12', 'raid-20', 'post')).toBe('Discord post updated.')
+    expect(await queueAndSend('2026-10-12', 'raid-20', 'post')).toBe('Sent to Discord.')
     expect(calls.slice(0, 3)).toEqual(['flush', 'queue:post', 'flush'])
     expect(calls).toContain('dispatch')
     expect(delivery.latest).toEqual({ id: 'd1', status: 'sent' })
