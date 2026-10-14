@@ -12,7 +12,15 @@ import { remote } from './remote/sync.svelte.js'
 const LOCAL_KEY = 'whentoraid-discord-channel'
 /** Posts for weeks older than this are forgotten, as on the server. */
 const KEEP_POST_DAYS = 90
-const EMPTY = { webhookUrl: '', channelId: '', mentionPlayers: false, posts: {} }
+/** `serverId`/`serverName`: the Discord server the WhenToRaid bot was added to (online guilds). */
+const EMPTY = {
+  webhookUrl: '',
+  channelId: '',
+  mentionPlayers: false,
+  posts: {},
+  serverId: '',
+  serverName: '',
+}
 
 export const discordChannel = $state({
   /** Which guild the values below belong to: an online guild's id, or "browser". */

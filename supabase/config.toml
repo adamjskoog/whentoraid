@@ -444,3 +444,8 @@ entrypoint = "./functions/raid-dispatch/index.js"
 [functions.raid-interactions]
 verify_jwt = false
 entrypoint = "./functions/raid-interactions/index.js"
+
+# Checks the caller itself: only an officer of the guild can connect its Discord server.
+[functions.discord-connect]
+verify_jwt = false
+entrypoint = "./functions/discord-connect/index.js"

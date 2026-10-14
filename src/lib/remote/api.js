@@ -128,6 +128,8 @@ export async function getGuildDiscord(client, guildId) {
         channelId: row.channel_id ?? '',
         mentionPlayers: row.mention_players,
         posts: row.posts,
+        serverId: row.server_id ?? '',
+        serverName: row.server_name ?? '',
       }
     : null
 }

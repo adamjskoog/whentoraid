@@ -92,7 +92,7 @@ The publishable key is public by design. Never put the secret or service-role ke
 5. Deploy the Edge Functions. `raid-dispatch` sends queued Discord posts and reminders, `raid-calendar` serves personal calendar feeds, and `raid-interactions` receives Discord button presses:
 
    ```sh
-   npx supabase functions deploy raid-dispatch raid-calendar raid-interactions
+   npx supabase functions deploy raid-dispatch raid-calendar raid-interactions discord-connect
    npx supabase secrets set RAID_DISPATCH_SECRET=<long random string>
    ```
 
@@ -104,16 +104,17 @@ The publishable key is public by design. Never put the secret or service-role ke
    ```
 
 7. Optional: **Confirm / Can't attend buttons in Discord.** Buttons only work on messages a Discord bot posts, so this uses the WhenToRaid Discord application's bot instead of a channel webhook.
-   1. In the Discord developer portal, open the application: copy its **Application ID** and **Public Key**, create a bot token under **Bot**, and set **Interactions Endpoint URL** to `https://<ref>.supabase.co/functions/v1/raid-interactions` (Discord sends a signed test request when you save it, so deploy the function and set the secrets first).
-   2. Set the secrets:
+   1. In the Discord developer portal, open the application: copy its **Application ID** and **Public Key**, copy the **Client Secret** under **OAuth2**, and create a bot token under **Bot**.
+   2. Set the secrets (the client secret is the same one Supabase uses for Discord sign-in):
 
       ```sh
       npx supabase secrets set DISCORD_APPLICATION_ID=<id> DISCORD_PUBLIC_KEY=<public key> \
-        DISCORD_BOT_TOKEN=<bot token> WHENTORAID_APP_URL=https://<you>.github.io/whentoraid/
+        DISCORD_CLIENT_SECRET=<client secret> DISCORD_BOT_TOKEN=<bot token> \
+        WHENTORAID_APP_URL=https://<you>.github.io/whentoraid/
       ```
 
-   3. Invite the bot to the guild's Discord server with the `bot` scope and the **View Channel** and **Send Messages** permissions on the roster channel.
-   4. In WhenToRaid, an officer enters the **Discord server ID** (Guild settings → Raid rules → Discord access) and the **Bot channel ID** (Guild settings → Connections). Rosters posted after that carry Confirm, Can't attend, and View roster buttons. A press is accepted only from a guild member on the current published roster, on the latest version of the post, before the raid starts.
+   3. Back in the portal, set **Interactions Endpoint URL** to `https://<ref>.supabase.co/functions/v1/raid-interactions` (Discord sends a signed test request when you save it, so the secrets must be set first). Under **OAuth2 → Redirects**, add the app's `discord-connect.html`, for example `https://<you>.github.io/whentoraid/discord-connect.html`.
+   4. In WhenToRaid, an officer opens Guild settings → Connections, clicks **Add WhenToRaid to Discord**, picks the server on Discord's screen (this needs Manage Server there), and then picks the roster channel from the list. The server ID is filled in from Discord's answer, never typed, and the bot only posts in channels of that server. Rosters posted after that carry Confirm, Can't attend, and View roster buttons. A press is accepted only from a guild member on the current published roster, on the latest version of the post, before the raid starts.
 
    Delivery stays off until an officer connects a channel and posts a roster; reminders stay off until enabled in Connections.
 
