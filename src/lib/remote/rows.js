@@ -1,4 +1,4 @@
-import { STATE_VERSION } from '../model.js'
+import { memberById, STATE_VERSION } from '../model.js'
 import { DEFAULT_RAID_ID, defaultRaids } from '../raids.js'
 
 /**
@@ -26,6 +26,36 @@ export const KEY_COLUMNS = {
 }
 
 /** @param {AppState} state @returns {Rows} */
+/**
+ * Arguments for create_online_guild from a guild in this browser (a new guild, the demo, or the
+ * browser guild moved online). The member being acted as becomes the first officer, linked to the
+ * signed-in Discord account.
+ */
+export function newGuildPayload(state, discordId) {
+  const me = memberById(state, state.currentMemberId)
+  const linked = {
+    ...state,
+    members: state.members.map((m) => {
+      if (m.id === me.id) return { ...m, discordId, officer: true }
+      // A Discord account belongs to one player per guild.
+      return m.discordId === discordId ? { ...m, discordId: '' } : m
+    }),
+  }
+  return {
+    guild: {
+      name: state.guild.name,
+      timezone: state.guild.timezone,
+      dayStartHour: state.guild.dayStartHour,
+      slotsPerDay: state.guild.slotsPerDay,
+      settings: { ...state.settings, ...(state.demoYear ? { demoYear: state.demoYear } : {}) },
+      discordServerId: state.guild.discordServerId,
+      officerRoleIds: state.guild.officerRoleIds,
+    },
+    me: { id: me.id, name: me.name, position: state.members.indexOf(me) },
+    rows: stateToRows(linked, '00000000-0000-0000-0000-000000000000'),
+  }
+}
+
 export function stateToRows(state, guildId) {
   const { guild, settings } = state
   const weeks = Object.entries(state.weeks)

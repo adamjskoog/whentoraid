@@ -10,6 +10,7 @@
     signIn,
     signOut,
   } from '../lib/remote/sync.svelte.js'
+  import { createDemoState } from '../lib/seed.js'
   import { showToast } from '../lib/toast.svelte.js'
 
   /** Sign-in, choosing an online guild, and moving the browser guild online. */
@@ -42,6 +43,13 @@
       busy = false
     }
   }
+
+  /** A separate online guild with the demo's sample players and raids, for trying things out. */
+  const createDemoGuild = () =>
+    run(() => {
+      const demo = createDemoState()
+      return createOnlineGuild({ ...demo, guild: { ...demo.guild, name: `${demo.guild.name} (demo)` } })
+    }, 'Demo guild created and opened. Switch back any time under Your online guilds.')
 
   const moveOnline = () =>
     run(
@@ -108,6 +116,15 @@
       No online guild lists you yet. Ask an officer for the guild’s invite link, or create one.
     </p>
   {/if}
+
+  <h3>Try things out</h3>
+  <p class="note">
+    Create a separate online guild with 24 sample players and a year of availability and raids, with you as
+    its officer. Use it to test rosters and Discord posts; your other guilds are not changed.
+  </p>
+  <div class="buttons">
+    <button disabled={busy} onclick={createDemoGuild}>Create a demo guild online</button>
+  </div>
 
   <div class="buttons spaced-top">
     {#if remote.guildId}
