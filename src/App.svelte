@@ -137,6 +137,14 @@
 <svelte:window onpopstate={followUrl} onhashchange={followUrl} />
 
 {#if app.data}
+  <a
+    class="skip-link"
+    href="#content"
+    onclick={(event) => {
+      event.preventDefault()
+      document.getElementById('content')?.focus()
+    }}>Skip to content</a
+  >
   <Sidebar />
 
   <main>
@@ -150,7 +158,7 @@
       </button>
     </header>
 
-    <div id="content">
+    <div id="content" tabindex="-1">
       {#if remote.hasUnsavedDraft}
         <section class="unsaved-notice" role="alert">
           <strong>Your last online edit was not saved.</strong>

@@ -24,7 +24,7 @@ describe('online guild, as a player', () => {
     render(App)
     expect(screen.queryByRole('button', { name: /Rebuild roster/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /Publish/ })).toBeNull()
-    expect(screen.getByText(/Viewing the confirmed roster/)).toBeTruthy()
+    expect(screen.getByText(/Viewing the published roster/)).toBeTruthy()
     expect(app.data).toBe(before)
   })
 
@@ -40,6 +40,14 @@ describe('online guild, as a player', () => {
   test('nothing is written to browser storage', () => {
     render(App)
     expect(localStorage.getItem('whentoraid-v3')).toBeNull()
+  })
+
+  test('players can review raid rules but cannot edit or submit them', () => {
+    app.view = 'settings'
+    render(App)
+    expect(screen.getByRole('group', { name: 'Guild and raid rules' }).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Save settings' })).toBeNull()
+    expect(screen.getByText(/Only officers can change guild settings/)).toBeTruthy()
   })
 
   test('officers keep every control', () => {

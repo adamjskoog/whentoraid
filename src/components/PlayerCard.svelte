@@ -6,6 +6,7 @@
   import { BENCH_LOOKBACK_WEEKS } from '../lib/planning.js'
   import { specIconUrl } from '../lib/spec-icons.js'
   import { touchDrag } from '../lib/touch-drag.js'
+  import Icon from './Icon.svelte'
 
   /**
    * `onmove(target)` handles a touch drop; target is a role name or "bench".
@@ -64,7 +65,7 @@
     {:else}
       <span class="mini" aria-hidden="true">{ROLE_ICONS[character.role]}</span>
     {/if}
-    <div>
+    <div class="player-name">
       <strong>{character.name}</strong>
       <small>{member.name} · {character.spec} {character.class}</small>
       {#if satOut > 0}
@@ -80,7 +81,7 @@
         aria-pressed={locked}
         aria-label="{locked ? 'Unlock' : 'Lock'} {character.name}"
         title={locked ? 'Locked: stays when the roster is rebuilt' : 'Lock to keep through rebuilds'}
-        onclick={onlock}>{locked ? '🔒' : '🔓'}</button
+        onclick={onlock}><Icon name={locked ? 'lock' : 'unlock'} size={16} /></button
       >
     {/if}
     {#if !readonly}

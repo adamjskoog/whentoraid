@@ -22,7 +22,7 @@
 
 <section class="panel side-section">
   <span class="eyebrow gold">RAID READINESS</span>
-  <h2 class="readiness-heading">A party with a plan.</h2>
+  <h2 class="readiness-heading">{problemCount ? 'Needs attention' : 'Session readiness'}</h2>
   <p>{sessionLabel}</p>
   {#each ROLES as role, i (role)}
     {@const full = readyCounts[i] >= targets[i]}

@@ -1,3 +1,4 @@
+import { expand } from './helpers.js'
 import { expect, test } from '@playwright/test'
 import { createSeedState } from '../src/lib/seed.js'
 
@@ -22,6 +23,7 @@ test('an officer connects a Discord channel and posts the published roster there
     if (!localStorage.getItem('whentoraid-v3')) localStorage.setItem('whentoraid-v3', JSON.stringify(state))
   }, createSeedState())
   await page.goto('./#/settings')
+  await page.getByRole('tab', { name: 'Connections' }).click()
 
   await page.getByLabel('Webhook URL').fill(HOOK)
   await page.getByRole('button', { name: 'Save channel' }).click()
@@ -32,6 +34,7 @@ test('an officer connects a Discord channel and posts the published roster there
 
   await page.goto('./#/planner')
   await page.getByRole('button', { name: 'Publish roster' }).click()
+  await expand(page, 'Publication & sharing options')
   await page.getByRole('button', { name: 'Post to Discord' }).click()
   await expect(page.getByText('Roster posted to Discord.')).toBeVisible()
   expect(requests[1]).toMatchObject({ method: 'POST', url: `${HOOK}?wait=true` })
@@ -40,6 +43,7 @@ test('an officer connects a Discord channel and posts the published roster there
 
   // The post is remembered across reloads, and updating it edits the same message.
   await page.reload()
+  await expand(page, 'Publication & sharing options')
   await page.getByRole('button', { name: 'Update Discord post' }).click()
   await expect(page.getByText('Discord post updated.')).toBeVisible()
   expect(requests[2]).toMatchObject({ method: 'PATCH', url: `${HOOK}/messages/1300000000000000002` })

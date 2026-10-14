@@ -22,8 +22,8 @@
 
 <PageTitle
   eyebrow="YOUR ADVENTURERS"
-  title="One player. Many possibilities."
-  subtitle="Character details are entered manually in this prototype."
+  title="My characters"
+  subtitle="Manage your main and alts. Choose who to bring on My availability."
 >
   {#snippet action()}
     <button class="primary" onclick={() => (editing = { characterId: null })}>+ Add character</button>

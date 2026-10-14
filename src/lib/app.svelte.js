@@ -25,6 +25,8 @@ export const app = $state({
   /** @type {import('./model.js').AppState | null} */
   data: initialData(saved.state, route),
   view: route.view,
+  /** One-time navigation intent from a personal assignment; never saved with guild data. */
+  plannerIntent: null,
   /** @type {string | null} */
   unreadable: saved.unreadable,
 })

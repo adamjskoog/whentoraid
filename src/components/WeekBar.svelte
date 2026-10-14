@@ -44,7 +44,6 @@
     >
     <button disabled={weekIso === thisWeek} onclick={() => goTo(thisWeek)}>This week</button>
   </div>
-  <span class="badge">WOW: FOREVER</span>
   <div class="right">
     {#if viewerZone !== guild.timezone}
       <label class="checkbox-row">
@@ -56,7 +55,10 @@
         Show my time ({viewerZone})
       </label>
     {/if}
-    <small>All times: {zone} · {hoursLabel} · 30-minute slots · +1 = next day</small>
+    <small>Times in {zone.replaceAll('_', ' ')}</small>
+    <details class="time-details">
+      <summary>Time details</summary><small>{hoursLabel} · 30-minute slots · +1 = next day</small>
+    </details>
     {#if labelsVary}
       <small class="gold"
         >Clocks change this week: row times are Monday’s. Select a cell for its exact date and time.</small

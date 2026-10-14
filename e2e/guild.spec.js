@@ -1,3 +1,4 @@
+import { navigate } from './helpers.js'
 import { expect, test } from '@playwright/test'
 
 /** Each test starts from an empty browser profile, so the app opens on first-run setup. */
@@ -16,7 +17,7 @@ async function createGuild(page) {
   await page.getByRole('button', { name: 'Create guild' }).click()
   // A new guild opens on the founder's own raid page, which guides their first steps.
   await expect(page.getByRole('heading', { name: 'My next raid' })).toBeVisible()
-  await page.getByRole('button', { name: /Guild members/ }).click()
+  await navigate(page, 'Guild members')
   await expect(page.getByRole('heading', { name: 'Guild members' })).toBeVisible()
 }
 
@@ -40,7 +41,7 @@ test('set up a guild, add a player, and check them in', async ({ page }) => {
   await page.getByRole('button', { name: 'Can’t make it this week' }).click()
   await expect(page.getByText('Checked in · not available this week')).toBeVisible()
 
-  await page.getByRole('button', { name: /Raid planner/ }).click()
+  await navigate(page, 'Raid planner')
   await expect(page.getByRole('heading', { name: 'Waiting on 1' })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Players who have not checked in' })).toHaveText('Sam')
 })
@@ -53,12 +54,13 @@ test('the guild survives a reload and can be started over', async ({ page }) => 
   await expect(page.locator('main > header')).toContainText('NIGHT SHIFT')
 
   // Back returns to the previous page.
-  await page.getByRole('button', { name: /Raid planner/ }).click()
+  await navigate(page, 'Raid planner')
   await expect(page.getByRole('region', { name: 'Roster publication' })).toBeVisible()
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Guild members' })).toBeVisible()
 
-  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await navigate(page, 'Guild settings')
+  await page.getByRole('tab', { name: 'Backups' }).click()
   await page.getByRole('button', { name: 'Set up a new guild' }).click()
   await page.getByRole('button', { name: 'Click again to erase this guild' }).click()
   await expect(page.getByRole('heading', { name: 'Set up your guild' })).toBeVisible()
@@ -66,7 +68,8 @@ test('the guild survives a reload and can be started over', async ({ page }) => 
 
 test('a backup restores the guild in a fresh browser', async ({ page, browser }) => {
   await createGuild(page)
-  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await navigate(page, 'Guild settings')
+  await page.getByRole('tab', { name: 'Backups' }).click()
   const downloading = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download backup (.json)' }).click()
   const backupPath = await (await downloading).path()

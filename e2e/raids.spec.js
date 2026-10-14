@@ -1,3 +1,4 @@
+import { navigate } from './helpers.js'
 import { expect, test } from '@playwright/test'
 import { createSeedState } from '../src/lib/seed.js'
 
@@ -11,7 +12,8 @@ test('demo replacement generates a new year and retains January after reload', a
   expect(Object.keys(first.weeks).length).toBeGreaterThanOrEqual(53)
   expect(first.settings.raids.map((raid) => raid.size)).toEqual([10, 10, 20])
 
-  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await navigate(page, 'Guild settings')
+  await page.getByRole('tab', { name: 'Backups' }).click()
   await page.getByRole('button', { name: 'Replace with the demo guild' }).click()
   await page.getByRole('button', { name: 'Click again to replace your guild' }).click()
   await expect(page.getByRole('region', { name: 'Roster publication' })).toBeVisible()
@@ -34,10 +36,11 @@ test('composition and saved rosters survive switching raids and reloading', asyn
     if (!localStorage.getItem('whentoraid-v3')) localStorage.setItem('whentoraid-v3', JSON.stringify(state))
   }, createSeedState())
   await page.goto('./#/planner')
+  await page.getByRole('tab', { name: /^Roster/ }).click()
   await page.getByRole('button', { name: '↻ Rebuild roster' }).click()
   const before = await saved(page)
   await page.getByRole('button', { name: '10-player Raid 1 · 10 players', exact: true }).click()
-  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await navigate(page, 'Guild settings')
   await page.getByLabel('Tank slots', { exact: true }).fill('1')
   await page.getByLabel('Healer slots', { exact: true }).fill('3')
   await page.getByLabel('Raid name', { exact: true }).fill('First raid')

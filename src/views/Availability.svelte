@@ -6,6 +6,7 @@
   import PageTitle from '../components/PageTitle.svelte'
   import WeekBar from '../components/WeekBar.svelte'
   import RaidSelector from '../components/RaidSelector.svelte'
+  import SectionTabs from '../components/SectionTabs.svelte'
   import { getRaid } from '../lib/raids.js'
   import { app } from '../lib/app.svelte.js'
   import { templateFor } from '../lib/availability-template.js'
@@ -34,6 +35,7 @@
 
   const memberId = $derived(app.data.currentMemberId)
   let editor = $state(globalThis.matchMedia?.('(max-width: 600px)').matches ? 'ranges' : 'grid')
+  let mobileSection = $state('times')
   let beforeEdit = null
   const weekIso = $derived(app.data.currentWeek)
   const checkin = $derived(getCheckin(app.data, weekIso, memberId))
@@ -154,32 +156,52 @@
   </p>
 {/if}
 
-<div class="availability-layout">
-  <div class="panel" inert={closed}>
+<div class="mobile-availability-tabs">
+  <SectionTabs
+    id="availability"
+    label="Your check-in"
+    tabs={[
+      { id: 'times', label: 'Your times' },
+      { id: 'characters', label: 'Raid & characters' },
+    ]}
+    value={mobileSection}
+    onselect={(value) => (mobileSection = value)}
+  />
+</div>
+<div class="availability-layout" data-mobile-section={mobileSection}>
+  <div
+    class="panel availability-times"
+    id="availability-panel-times"
+    role="tabpanel"
+    aria-labelledby="availability-tab-times"
+    inert={closed}
+  >
     <h2>Weekly availability</h2>
     <p>
-      These times apply to {app.data.settings.raids.length === 1
+      Your times apply to {app.data.settings.raids.length === 1
         ? 'your raid'
-        : `all ${app.data.settings.raids.length} raids`}. Adjust any week without changing your usual
-      schedule.
+        : `all ${app.data.settings.raids.length} raids`}.
     </p>
     <span class="badge">{availabilitySource(app.data, weekIso, memberId)}</span>
-    <div class="buttons">
-      <button onclick={() => changeTemplate('save')}>Save as usual schedule</button>
+    <details class="usual-schedule">
+      <summary>Usual schedule</summary>
+      <div class="buttons">
+        <button onclick={() => changeTemplate('save')}>Save as usual schedule</button>
+        {#if template}
+          <button disabled={templateFor(template, weekIso) === null} onclick={() => changeTemplate('use')}
+            >Use usual schedule this week</button
+          >
+          <button onclick={() => changeTemplate('remove')}>Remove usual schedule</button>
+        {/if}
+      </div>
       {#if template}
-        <button disabled={templateFor(template, weekIso) === null} onclick={() => changeTemplate('use')}
-          >Use usual schedule this week</button
-        >
-        <button onclick={() => changeTemplate('remove')}>Remove usual schedule</button>
+        <p class="note">
+          Usual schedule saved in {template.timezone}, from week of {template.fromWeek}. {usingTemplate
+            ? 'This week uses it automatically.'
+            : 'Saved weekly check-ins override it.'}
+        </p>
       {/if}
-    </div>
-    {#if template}
-      <p class="note">
-        Usual schedule saved in {template.timezone}, from week of {template.fromWeek}. {usingTemplate
-          ? 'This week uses it automatically.'
-          : 'Saved weekly check-ins override it.'}
-      </p>
-    {/if}
+    </details>
     <div class="buttons editor-choice" role="group" aria-label="Availability editor">
       <button aria-pressed={editor === 'ranges'} onclick={() => (editor = 'ranges')}>Time ranges</button>
       <button aria-pressed={editor === 'grid'} onclick={() => (editor = 'grid')}>Paint grid</button>
@@ -210,7 +232,12 @@
     <InlineSaveStatus />
   </div>
 
-  <div>
+  <div
+    class="availability-characters"
+    id="availability-panel-characters"
+    role="tabpanel"
+    aria-labelledby="availability-tab-characters"
+  >
     <h2>Who are you bringing?</h2>
     {#if !myCharacters.length}
       <p class="note warning">Add a character before officers can include you in a roster.</p>

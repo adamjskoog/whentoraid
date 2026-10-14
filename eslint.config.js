@@ -3,7 +3,7 @@ import svelte from 'eslint-plugin-svelte'
 import globals from 'globals'
 
 export default [
-  { ignores: ['dist/', 'legacy/', 'node_modules/'] },
+  { ignores: ['dist/', 'legacy/', 'node_modules/', 'test-results/', 'playwright-report/'] },
   js.configs.recommended,
   ...svelte.configs.recommended,
   {

@@ -6,32 +6,44 @@
   const complete = $derived(steps.every((step) => step.complete))
 </script>
 
-<section class="panel onboarding" aria-label="Getting ready to raid">
-  <h2>{complete ? 'You’re ready for planning' : 'Get ready for your first raid'}</h2>
-  <p>
-    {complete
-      ? 'Your character and availability are ready for the officers.'
-      : 'Complete these steps so officers can include you in a roster.'}
-  </p>
-  <ol>
-    {#each steps as step (step.id)}
-      <li class:done={step.complete}>
-        <span aria-hidden="true">{step.complete ? '✓' : '○'}</span>
-        <span>{step.label}<small>{step.complete ? 'Complete' : 'To do'}</small></span>
-        {#if !step.complete && step.view}
-          <button
-            onclick={() => {
-              app.data = { ...app.data, currentWeek: weekIso }
-              app.view = step.view
-            }}>{step.id === 'character' ? 'Add character' : 'Set availability'}</button
-          >
-        {/if}
-      </li>
-    {/each}
-  </ol>
-</section>
+{#if complete}
+  <p class="onboarding-complete"><span aria-hidden="true">✓</span> You’re ready for planning</p>
+{:else}
+  <section class="panel onboarding" aria-label="Getting ready to raid">
+    <h2>{complete ? 'You’re ready for planning' : 'Get ready for your first raid'}</h2>
+    <p>
+      {complete
+        ? 'Your character and availability are ready for the officers.'
+        : 'Complete these steps so officers can include you in a roster.'}
+    </p>
+    <ol>
+      {#each steps as step (step.id)}
+        <li class:done={step.complete}>
+          <span aria-hidden="true">{step.complete ? '✓' : '○'}</span>
+          <span>{step.label}<small>{step.complete ? 'Complete' : 'To do'}</small></span>
+          {#if !step.complete && step.view}
+            <button
+              onclick={() => {
+                app.data = { ...app.data, currentWeek: weekIso }
+                app.view = step.view
+              }}>{step.id === 'character' ? 'Add character' : 'Set availability'}</button
+            >
+          {/if}
+        </li>
+      {/each}
+    </ol>
+  </section>
+{/if}
 
 <style>
+  .onboarding-complete {
+    color: var(--green);
+    font-size: 13px;
+    margin: 1rem 0;
+  }
+  .onboarding-complete span {
+    margin-right: 0.5rem;
+  }
   .onboarding {
     margin: 1.5rem 0;
   }

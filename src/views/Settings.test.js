@@ -27,6 +27,7 @@ describe('Guild settings: backup and start over', () => {
     const other = { ...createSeedState(), guild: { ...before.guild, name: 'Backup Guild' } }
     render(App)
 
+    await fireEvent.click(screen.getByRole('tab', { name: 'Backups' }))
     await chooseFile(backupFile(other))
     await waitFor(() => expect(app.data.guild.name).toBe('Backup Guild'))
     expect(screen.getByText('Restored Backup Guild from the backup.')).toBeTruthy()
@@ -38,6 +39,7 @@ describe('Guild settings: backup and start over', () => {
   test('a file that is not a backup leaves the guild alone', async () => {
     const before = app.data
     render(App)
+    await fireEvent.click(screen.getByRole('tab', { name: 'Backups' }))
     await chooseFile(new File(['{"hello": 1}'], 'notes.json'))
     await waitFor(() => expect(screen.getByText(/not a WhenToRaid backup/)).toBeTruthy())
     expect(app.data).toBe(before)
@@ -46,6 +48,7 @@ describe('Guild settings: backup and start over', () => {
   test('erasing the guild can be undone from setup', async () => {
     const before = app.data
     render(App)
+    await fireEvent.click(screen.getByRole('tab', { name: 'Backups' }))
     await fireEvent.click(screen.getByRole('button', { name: 'Set up a new guild' }))
     await fireEvent.click(screen.getByRole('button', { name: 'Click again to erase this guild' }))
     expect(app.data).toBeNull()
@@ -85,6 +88,31 @@ describe('Guild settings: unsaved changes', () => {
 
   const guildName = () => screen.getByLabelText('Guild name')
   const goToPlanner = () => fireEvent.click(screen.getByRole('button', { name: /Raid planner/ }))
+
+  test('switching settings sections retains the draft and its leave guard', async () => {
+    render(App)
+    await fireEvent.input(guildName(), { target: { value: 'Renamed' } })
+    await fireEvent.click(screen.getByRole('tab', { name: 'Connections' }))
+    expect(screen.getByText('You have unsaved raid rules.')).toBeTruthy()
+    await goToPlanner()
+    expect(app.view).toBe('settings')
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    expect(guildName().value).toBe('Renamed')
+    await fireEvent.click(screen.getByRole('button', { name: 'Discard edits' }))
+    expect(guildName().value).toBe('The After Hours')
+    await goToPlanner()
+    expect(app.view).toBe('planner')
+  })
+
+  test('leaving backups cancels a pending guild replacement confirmation', async () => {
+    render(App)
+    await fireEvent.click(screen.getByRole('tab', { name: 'Backups' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Replace with the demo guild' }))
+    await fireEvent.click(screen.getByRole('tab', { name: 'Raid rules' }))
+    await fireEvent.click(screen.getByRole('tab', { name: 'Backups' }))
+    expect(screen.queryByRole('button', { name: 'Click again to replace your guild' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Replace with the demo guild' })).toBeTruthy()
+  })
 
   test('leaving with unsaved changes stays on the page until they are discarded', async () => {
     render(App)
