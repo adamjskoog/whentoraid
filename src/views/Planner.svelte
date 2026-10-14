@@ -242,8 +242,10 @@
     app.data = result.state
     showIssues = false
     offerUndo('Roster published. Draft edits will stay separate.', previous)
-    // A roster already in Discord follows what was just published.
-    if (hasDiscordChannel() && postedIds.length) void followPublication(postToDiscord)
+    if (!hasDiscordChannel()) return
+    // A roster already in Discord follows what was just published; a new one is posted unless unticked.
+    if (postedIds.length) void followPublication(postToDiscord)
+    else if (postOnPublish) void postToDiscord()
   }
 
   function withdraw() {
@@ -432,6 +434,8 @@
   const discordKey = $derived(postKey(weekIso, app.data.currentRaidId))
   const postedIds = $derived(discordChannel.posts[discordKey] ?? [])
   let posting = $state(false)
+  /** Whether publishing a roster that is not in Discord yet also posts it there. */
+  let postOnPublish = $state(true)
 
   $effect(() => {
     if (canManage() && usesServerDelivery() && hasDiscordChannel())
@@ -588,6 +592,9 @@
           </div>
           {#if !viewPublished}<button class="primary" disabled={published && !draftChanged} onclick={publish}
               >{published ? 'Publish draft changes' : 'Publish roster'}</button
+            >{/if}
+          {#if !viewPublished && hasDiscordChannel() && !postedIds.length}<label class="checkbox-row"
+              ><input type="checkbox" bind:checked={postOnPublish} />Also post to Discord</label
             >{/if}
         </div>
       {/if}

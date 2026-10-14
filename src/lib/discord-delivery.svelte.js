@@ -53,7 +53,7 @@ export async function sendQueued(week, raidId) {
     await flushOnlineChanges()
     const results = await dispatchDiscordDeliveries(supabase, remote.guildId)
     const problem = results.find((result) => result.status === 'uncertain' || result.status === 'retrying')
-    message = problem ? problem.error : results.length ? 'Discord post updated.' : null
+    message = problem ? problem.error : results.length ? 'Sent to Discord.' : null
   } catch (error) {
     message = error.message
   }
