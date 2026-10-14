@@ -97,7 +97,9 @@
   {:else}
     <div class="buttons">
       {#if current?.status !== 'confirmed'}
-        <button disabled={saving} onclick={() => respond('confirmed')}>I’ll be there</button>
+        <button class="primary" disabled={saving} onclick={() => respond('confirmed')}
+          >{saving ? 'Saving…' : 'I’ll be there'}</button
+        >
       {/if}
       {#if current?.status !== 'unavailable'}
         <button disabled={saving} onclick={() => (reporting = true)}>I can’t make it</button>

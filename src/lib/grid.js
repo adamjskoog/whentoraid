@@ -100,6 +100,30 @@ export function formatSessionIn({ start, end }, zone) {
   return `${DAYS[weekdayIndex(from.dateIso)]} · ${formatClock(from.minutes)}–${formatClock(wallTime(end, zone).minutes)}`
 }
 
+/** "Tuesday, October 13, 2026" for the day a UTC instant falls on in `zone`. */
+export function formatFullDateIn(start, zone) {
+  return new Date(start).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: zone,
+  })
+}
+
+/**
+ * The planner heading: full date and guild time, plus the viewer's own time when it differs, e.g.
+ * "Tuesday, October 13, 2026 · 7:00 pm – 10:00 pm guild time (Tue Oct 13, 10:00 pm – 1:00 am your time)".
+ */
+export function formatSessionHeading(session, guildZone, viewerZone = guildZone) {
+  const guildTimes = formatTimesIn(session, guildZone)
+  const heading = `${formatFullDateIn(session.start, guildZone)} · ${guildTimes} guild time`
+  const ownTimes = formatTimesIn(session, viewerZone)
+  const ownDate = formatDateIn(session, viewerZone)
+  if (ownTimes === guildTimes && ownDate === formatDateIn(session, guildZone)) return heading
+  return `${heading} (${ownDate}, ${ownTimes} your time)`
+}
+
 /** "7:00 pm – 9:00 pm" for a UTC session, in `zone`. */
 export function formatTimesIn({ start, end }, zone) {
   return `${formatClock(wallTime(start, zone).minutes)} – ${formatClock(wallTime(end, zone).minutes)}`

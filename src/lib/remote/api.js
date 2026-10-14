@@ -116,21 +116,30 @@ export async function applyOps(client, guildId, revision, ops) {
 }
 
 /**
- * The guild's Discord channel, readable by officers only.
- * @returns {Promise<{ webhookUrl: string, mentionPlayers: boolean, posts: Record<string, string[]> } | null>}
+ * The guild's Discord channel, readable by officers only. `channelId` is set when the WhenToRaid bot
+ * posts rosters (with response buttons) instead of a webhook.
+ * @returns {Promise<{ webhookUrl: string, channelId: string, mentionPlayers: boolean, posts: Record<string, string[]> } | null>}
  */
 export async function getGuildDiscord(client, guildId) {
   const [row] = check(await client.rpc('get_guild_discord', { p_guild_id: guildId }))
-  return row ? { webhookUrl: row.webhook_url, mentionPlayers: row.mention_players, posts: row.posts } : null
+  return row
+    ? {
+        webhookUrl: row.webhook_url ?? '',
+        channelId: row.channel_id ?? '',
+        mentionPlayers: row.mention_players,
+        posts: row.posts,
+      }
+    : null
 }
 
-/** Set the guild's Discord channel; an empty URL removes it. */
-export async function setGuildDiscord(client, guildId, { webhookUrl, mentionPlayers }) {
+/** Set the guild's Discord channel; an empty URL and channel ID remove it. */
+export async function setGuildDiscord(client, guildId, { webhookUrl, mentionPlayers, channelId = '' }) {
   check(
     await client.rpc('set_guild_discord', {
       p_guild_id: guildId,
       p_webhook_url: webhookUrl,
       p_mention_players: mentionPlayers,
+      p_channel_id: channelId,
     }),
   )
 }

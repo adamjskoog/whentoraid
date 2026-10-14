@@ -5,29 +5,36 @@
   const raid = $derived(getRaid(app.data))
 </script>
 
-<section class="panel raid-selector" aria-label="Choose a raid">
+<section class="raid-selector" aria-label="Choose a raid">
   <div class="buttons">
     {#each app.data.settings.raids as option (option.id)}
       <button
         type="button"
+        aria-label={`${option.name} · ${option.size} players`}
         class:primary={raid.id === option.id}
         aria-pressed={raid.id === option.id}
         onclick={() => requestLeave(() => (app.data = setCurrentRaid(app.data, option.id)))}
-        >{option.name} · {option.size} players</button
+        >{option.name}<span class="raid-size">{option.size}</span></button
       >
     {/each}
   </div>
-  <p class="note">
+  <p class="raid-composition">
     {raid.targets[0]} tanks · {raid.targets[1]} healers · {raid.targets[2]} damage · {raid.durationSlots / 2} hours.
-    Each raid keeps its own composition and roster.
   </p>
 </section>
 
 <style>
   .raid-selector {
-    margin: 1rem 0;
+    margin: 0 0 1rem;
+    min-width: 0;
   }
-  .note {
-    margin-bottom: 0;
+  .raid-size {
+    margin-left: 0.6rem;
+    opacity: 0.7;
+    font-size: 12px;
+  }
+  .raid-composition {
+    margin: 0.6rem 0 0;
+    font-size: 12px;
   }
 </style>

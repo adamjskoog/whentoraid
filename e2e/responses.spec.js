@@ -1,3 +1,4 @@
+import { navigate } from './helpers.js'
 import { expect, test } from '@playwright/test'
 import { createSeedState } from '../src/lib/seed.js'
 
@@ -21,7 +22,8 @@ test('a rostered player reports a late problem and an officer finds a replacemen
   await expect(next.getByText(/can’t make it: “Working late”/)).toBeVisible()
 
   // As the officer.
-  await page.getByRole('button', { name: /Raid planner/ }).click()
+  await navigate(page, 'Raid planner')
+  await page.getByRole('tab', { name: 'Responses' }).click()
   const responses = page.getByRole('region', { name: 'Player responses' })
   await expect(responses).toContainText('1 can’t make it')
   await expect(responses).toContainText('Working late')

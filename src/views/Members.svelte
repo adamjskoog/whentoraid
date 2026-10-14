@@ -2,18 +2,20 @@
   import InvitePanel from '../components/InvitePanel.svelte'
   import MemberDialog from '../components/MemberDialog.svelte'
   import PageTitle from '../components/PageTitle.svelte'
+  import Icon from '../components/Icon.svelte'
   import { app } from '../lib/app.svelte.js'
   import { attendanceRecord, formatRecord, RECORD_LOOKBACK_WEEKS } from '../lib/attendance.js'
   import { CLASS_COLORS, ROLES } from '../lib/constants.js'
   import { availabilitySource } from '../lib/personal-raids.js'
   import { setCurrentMember } from '../lib/members.js'
-  import { charactersOf, getCheckin, memberById, tracksAttendance } from '../lib/model.js'
+  import { charactersOf, getCheckin, memberById, setCurrentWeek, tracksAttendance } from '../lib/model.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import { showToast } from '../lib/toast.svelte.js'
 
   /** null: closed. { memberId: null }: adding. { memberId }: editing. */
   let editing = $state(null)
   let search = $state('')
+  let searchInput
   let roleFilter = $state('')
   let responseFilter = $state('')
   const editingMember = $derived(editing?.memberId ? memberById(app.data, editing.memberId) : null)
@@ -49,6 +51,20 @@
       )
     }),
   )
+  const hasFilters = $derived(Boolean(search || roleFilter || responseFilter))
+  const checkedIn = $derived(rows.filter((row) => row.status.key !== 'waiting').length)
+
+  function clearFilters() {
+    search = ''
+    roleFilter = ''
+    responseFilter = ''
+    searchInput?.focus()
+  }
+
+  function changeWeek(event) {
+    app.data = setCurrentWeek(app.data, event.currentTarget.value)
+    event.currentTarget.value = app.data.currentWeek
+  }
 
   function weekStatus(checkin) {
     if (!checkin.checkedIn) return { key: 'waiting', label: 'Waiting', tone: 'gold' }
@@ -71,18 +87,42 @@
 >
   {#snippet action()}
     {#if canManage()}
-      <button class="primary" onclick={() => (editing = { memberId: null })}>+ Add player</button>
+      <button class="primary member-add" onclick={() => (editing = { memberId: null })}>+ Add player</button>
     {/if}
   {/snippet}
 </PageTitle>
 
 {#if remote.guildId && remote.officer}
-  <InvitePanel />
+  <details class="member-invites">
+    <summary
+      ><Icon name="members" size={18} /> Invite players <span>Share a guild or personal invite</span></summary
+    >
+    <InvitePanel />
+  </details>
 {/if}
 
-<div class="panel member-table-wrap spaced-top">
+<section class="panel member-directory" aria-label="Guild directory">
+  <div class="member-context">
+    <div>
+      <h2>Weekly check-ins</h2>
+      <p>
+        {checkedIn} of {rows.length} players checked in <span aria-hidden="true">·</span>
+        {rows.length - checkedIn} waiting
+      </p>
+    </div>
+    <label class="field">Week beginning<input type="date" value={weekIso} onchange={changeWeek} /></label>
+  </div>
   <div class="member-filters" role="search" aria-label="Find guild members">
-    <label class="field">Search players or characters<input type="search" bind:value={search} /></label>
+    <label class="field"
+      >Search players or characters<span class="member-search"
+        ><Icon name="search" size={18} /><input
+          type="search"
+          placeholder="Player or character name"
+          bind:this={searchInput}
+          bind:value={search}
+        /></span
+      ></label
+    >
     <label class="field"
       >Role<select bind:value={roleFilter}
         ><option value="">All roles</option>{#each ROLES as role (role)}<option value={role}>{role}</option
@@ -98,54 +138,70 @@
       ></label
     >
   </div>
-  <p class="note" role="status">{filteredRows.length} of {rows.length} players</p>
-  <table class="member-table">
-    <thead>
-      <tr>
-        <th scope="col">Player</th>
-        <th scope="col">Main character</th>
-        <th scope="col">This week</th>
-        {#if showAttendance}<th scope="col">Attendance (last {RECORD_LOOKBACK_WEEKS} weeks)</th>{/if}
-        <th scope="col"><span class="visually-hidden">Actions</span></th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each filteredRows as { member, main, alts, status, source, record } (member.id)}
-        {@const isMe = member.id === app.data.currentMemberId}
+  <div class="member-results">
+    <p role="status">
+      {filteredRows.length} of {rows.length} players{hasFilters ? ' match your filters' : ''}
+    </p>
+    {#if hasFilters}<button onclick={clearFilters}>Clear filters</button>{/if}
+  </div>
+  <div class="member-table-wrap">
+    <table class="member-table">
+      <caption class="visually-hidden">Guild members and check-ins for the week beginning {weekIso}</caption>
+      <thead>
         <tr>
-          <th scope="row">
-            {member.name}
-            {#if isMe}<span class="badge">YOU</span>{/if}
-            {#if remote.guildId && member.officer}<span class="badge">OFFICER</span>{/if}
-            <small>{member.discordId ? 'Discord ID saved' : 'No Discord ID'}</small>
-          </th>
-          <td style:--class={main ? CLASS_COLORS[main.class] : null}>
-            {#if main}
-              <strong class="class-name">{main.name}</strong>
-              <small
-                >{main.spec}
-                {main.class} · {main.role}{alts ? ` · +${alts} alt${alts === 1 ? '' : 's'}` : ''}</small
-              >
-            {/if}
-          </td>
-          <td data-label="This week"
-            ><span class={status.tone}>{status.label}</span><small>{source}</small></td
-          >
-          {#if showAttendance}<td data-label="Attendance">{record ?? '—'}</td>{/if}
-          <td class="row-actions">
-            {#if canManage()}
-              <button disabled={isMe} onclick={() => actAs(member)}>{isMe ? 'Acting as' : 'Act as'}</button>
-              <button onclick={() => (editing = { memberId: member.id })} aria-label="Edit {member.name}"
-                >Edit</button
-              >
-            {/if}
-          </td>
+          <th scope="col">Player</th>
+          <th scope="col">Main character</th>
+          <th scope="col">Check-in</th>
+          {#if showAttendance}<th scope="col">Attendance (last {RECORD_LOOKBACK_WEEKS} weeks)</th>{/if}
+          {#if canManage()}<th scope="col"><span class="visually-hidden">Actions</span></th>{/if}
         </tr>
-      {/each}
-    </tbody>
-  </table>
-  {#if !filteredRows.length}<p>No players match these filters.</p>{/if}
-</div>
+      </thead>
+      <tbody>
+        {#each filteredRows as { member, main, alts, status, source, record } (member.id)}
+          {@const isMe = member.id === app.data.currentMemberId}
+          <tr>
+            <th scope="row">
+              {member.name}
+              {#if isMe}<span class="badge">YOU</span>{/if}
+              {#if remote.guildId && member.officer}<span class="badge">OFFICER</span>{/if}
+              <small>{member.discordId ? 'Discord ID saved' : 'No Discord ID'}</small>
+            </th>
+            <td style:--class={main ? CLASS_COLORS[main.class] : null}>
+              {#if main}
+                <strong class="class-name">{main.name}</strong>
+                <small
+                  >{main.spec}
+                  {main.class} · {main.role}{alts ? ` · +${alts} alt${alts === 1 ? '' : 's'}` : ''}</small
+                >
+              {:else}
+                <span class="muted">No active character</span>
+              {/if}
+            </td>
+            <td data-label="Check-in"
+              ><span class={status.tone}>{status.label}</span><small>{source}</small></td
+            >
+            {#if showAttendance}<td data-label="Attendance">{record ?? '—'}</td>{/if}
+            {#if canManage()}
+              <td class="row-actions">
+                <button disabled={isMe} onclick={() => actAs(member)}>{isMe ? 'Acting as' : 'Act as'}</button>
+                <button onclick={() => (editing = { memberId: member.id })} aria-label="Edit {member.name}"
+                  >Edit</button
+                >
+              </td>
+            {/if}
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+  {#if !filteredRows.length}
+    <div class="member-empty">
+      <Icon name="search" size={28} />
+      <h3>No players match these filters.</h3>
+      <p>Try another name, role, or check-in status, or clear the filters to see everyone.</p>
+    </div>
+  {/if}
+</section>
 
 <p class="note">
   {#if !remote.guildId}
@@ -159,18 +215,3 @@
 </p>
 
 <MemberDialog open={editing !== null} member={editingMember} onclose={() => (editing = null)} />
-
-<style>
-  .member-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-  .member-filters label {
-    flex: 1 1 10rem;
-  }
-  .member-filters label:first-child {
-    flex: 2 1 16rem;
-  }
-</style>

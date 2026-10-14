@@ -78,97 +78,111 @@
   }
 </script>
 
-<div class="role-columns">
-  {#each ROLES as role, i (role)}
-    {@const entries = team.filter((e) => e.role === role)}
-    <section
-      aria-label="{role} slots"
-      data-drop={role}
-      ondragover={(e) => e.preventDefault()}
-      ondrop={(e) => dropNative(e, role)}
-    >
-      <div class="role-title">{roleHeading(role)} <b>{entries.length} / {targets[i]}</b></div>
-      {#each entries as entry (entry.memberId)}
-        <PlayerCard
-          {entry}
-          {players}
-          {window}
-          {readonly}
-          onedit={() => onedit(entry.memberId)}
-          onmove={(target) => move(entry, target)}
-          locked={locked.includes(entry.memberId)}
-          onlock={onlock && (() => onlock(entry.memberId))}
-        />
-      {/each}
-      {#if !readonly && entries.length < targets[i]}
-        <button class="empty-slot" onclick={() => onadd(role)}>
-          + Add {role.toLowerCase()} · {targets[i] - entries.length} open
-        </button>
-      {/if}
-    </section>
-  {/each}
-</div>
-
-<div
-  class="bench"
-  role="region"
-  aria-label="Bench"
-  data-drop="bench"
-  ondragover={(e) => e.preventDefault()}
-  ondrop={(e) => dropNative(e, 'bench')}
->
-  <CollapsibleSection title={`On the bench ${benchCount}`}>
-    <div class="settings-grid">
-      <label class="field"
-        >Search bench<input type="search" placeholder="Player or character name" bind:value={search} /></label
+<div class="roster-layout">
+  <div class="role-columns">
+    {#each ROLES as role, i (role)}
+      {@const entries = team.filter((e) => e.role === role)}
+      <section
+        class:damage-role={role === 'DPS'}
+        aria-label="{role} slots"
+        data-drop={role}
+        ondragover={(e) => e.preventDefault()}
+        ondrop={(e) => dropNative(e, role)}
       >
-      <label class="field"
-        >Bench role<select bind:value={filterRole}
-          ><option value="">All roles</option>{#each ROLES as role (role)}<option>{role}</option
-            >{/each}</select
-        ></label
-      >
-      <label class="field"
-        >Bench class<select bind:value={filterClass}
-          ><option value="">All classes</option>{#each CLASS_NAMES as cls (cls)}<option>{cls}</option
-            >{/each}</select
-        ></label
-      >
-    </div>
-    {#if search || filterRole || filterClass}
-      <p class="note" role="status">
-        {Object.values(groups).flatMap(benchEntries).length} of {benchCount} players match.
-        <button
-          onclick={() => {
-            search = ''
-            filterRole = ''
-            filterClass = ''
-          }}>Clear filters</button
-        >
-      </p>
-    {/if}
-    {#each BENCH_SECTIONS as section (section.key)}
-      {@const entries = benchEntries(groups[section.key])}
-      {#if entries.length || section.empty}
-        <h4 class="bench-group">{section.title} <span>{entries.length}</span></h4>
-        {#if entries.length}
-          <div class="bench-list" class:dimmed={section.key !== 'available'}>
-            {#each entries as entry (entry.memberId)}
-              <PlayerCard
-                {entry}
-                {players}
-                {window}
-                {readonly}
-                bench
-                onedit={() => onedit(entry.memberId)}
-                onmove={(target) => move(entry, target)}
-              />
-            {/each}
-          </div>
-        {:else}
-          <p class="small-text">{section.empty}</p>
-        {/if}
-      {/if}
+        <div class="role-title">{roleHeading(role)} <b>{entries.length} / {targets[i]}</b></div>
+        <div class="role-players" role="list" aria-label={`${role} roster`}>
+          {#each entries as entry (entry.memberId)}
+            <PlayerCard
+              {entry}
+              {players}
+              {window}
+              {readonly}
+              onedit={() => onedit(entry.memberId)}
+              onmove={(target) => move(entry, target)}
+              locked={locked.includes(entry.memberId)}
+              onlock={onlock && (() => onlock(entry.memberId))}
+            />
+          {/each}
+          {#if !readonly && entries.length < targets[i]}
+            <button class="empty-slot" onclick={() => onadd(role)}>
+              + Add {role.toLowerCase()} · {targets[i] - entries.length} open
+            </button>
+          {/if}
+        </div>
+      </section>
     {/each}
-  </CollapsibleSection>
+  </div>
+
+  <div
+    class="bench"
+    role="region"
+    aria-label="Bench"
+    data-drop="bench"
+    ondragover={(e) => e.preventDefault()}
+    ondrop={(e) => dropNative(e, 'bench')}
+  >
+    <CollapsibleSection title={`On the bench ${benchCount}`}>
+      <div class="settings-grid">
+        <label class="field"
+          >Search bench<input
+            type="search"
+            placeholder="Player or character name"
+            bind:value={search}
+          /></label
+        >
+        <label class="field"
+          >Bench role<select bind:value={filterRole}
+            ><option value="">All roles</option>{#each ROLES as role (role)}<option>{role}</option
+              >{/each}</select
+          ></label
+        >
+        <label class="field"
+          >Bench class<select bind:value={filterClass}
+            ><option value="">All classes</option>{#each CLASS_NAMES as cls (cls)}<option>{cls}</option
+              >{/each}</select
+          ></label
+        >
+      </div>
+      {#if search || filterRole || filterClass}
+        <p class="note" role="status">
+          {Object.values(groups).flatMap(benchEntries).length} of {benchCount} players match.
+          <button
+            onclick={() => {
+              search = ''
+              filterRole = ''
+              filterClass = ''
+            }}>Clear filters</button
+          >
+        </p>
+      {/if}
+      {#each BENCH_SECTIONS as section (section.key)}
+        {@const entries = benchEntries(groups[section.key])}
+        {#if entries.length || section.empty}
+          <h4 class="bench-group">{section.title} <span>{entries.length}</span></h4>
+          {#if entries.length}
+            <div
+              class="bench-list"
+              role="list"
+              aria-label={section.title}
+              class:dimmed={section.key !== 'available'}
+            >
+              {#each entries as entry (entry.memberId)}
+                <PlayerCard
+                  {entry}
+                  {players}
+                  {window}
+                  {readonly}
+                  bench
+                  onedit={() => onedit(entry.memberId)}
+                  onmove={(target) => move(entry, target)}
+                />
+              {/each}
+            </div>
+          {:else}
+            <p class="small-text">{section.empty}</p>
+          {/if}
+        {/if}
+      {/each}
+    </CollapsibleSection>
+  </div>
 </div>

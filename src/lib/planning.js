@@ -61,20 +61,23 @@ export function formatBackups(spare) {
 const sum = (numbers) => numbers.reduce((total, n) => total + n, 0)
 
 /**
- * Best roster for every possible session start, best first: most slots filled, then the most backups
+ * Best roster for every possible session start, best first: most slots filled, required utilities
+ * covered and firm players, then the most backups
  * for the thinnest role, then the most backups overall, then fairness and mains, then earliest.
  * @returns {Suggestion[]}
  */
-export function rankSuggestions(windows, players, targets) {
+export function rankSuggestions(windows, players, targets, rules) {
   return windows
     .map((window) => {
-      const composition = compose(players, window, targets)
+      const composition = compose(players, window, targets, { rules })
       const spare = backups(players, window, composition.team)
       return { ...window, ...composition, backups: spare, thinnest: thinnestBackup(spare, targets) }
     })
     .sort(
       (a, b) =>
         b.team.length - a.team.length ||
+        b.utilityCount - a.utilityCount ||
+        b.firm - a.firm ||
         b.thinnest - a.thinnest ||
         sum(b.backups) - sum(a.backups) ||
         b.fairness - a.fairness ||
@@ -150,7 +153,7 @@ export function plannerContext(state) {
   const players = plannerPlayers(state)
   const raid = getRaid(state)
   const windows = sessionWindows(weekIso, raid.durationSlots, state.guild)
-  const suggestions = rankSuggestions(windows, players, raid.targets)
+  const suggestions = rankSuggestions(windows, players, raid.targets, raid.rules)
   const plan = resolvePlan(getWeek(state, weekIso).plan, windows, suggestions)
   return { players, windows, suggestions, plan }
 }
@@ -161,9 +164,9 @@ export function plannerContext(state) {
  * @param {string[]} locked member IDs
  * @returns {RosterEntry[]}
  */
-export function rebuildTeam(players, window, targets, team, locked) {
+export function rebuildTeam(players, window, targets, team, locked, rules) {
   const lockedEntries = team.filter((e) => locked.includes(e.memberId))
-  return compose(players, window, targets, { locked: lockedEntries }).team
+  return compose(players, window, targets, { locked: lockedEntries, rules }).team
 }
 
 /**
@@ -173,10 +176,10 @@ export function rebuildTeam(players, window, targets, team, locked) {
  * @param {string[]} locked member IDs
  * @returns {{ team: RosterEntry[], replaced: number }} `replaced` counts entries dropped from `team`
  */
-export function retimeTeam(players, window, targets, team, locked) {
+export function retimeTeam(players, window, targets, team, locked, rules) {
   const kept = team.filter((e) => locked.includes(e.memberId) || conflicts(e, players, window).length === 0)
   return {
-    team: compose(players, window, targets, { locked: kept }).team,
+    team: compose(players, window, targets, { locked: kept, rules }).team,
     replaced: team.length - kept.length,
   }
 }
@@ -310,7 +313,7 @@ export function applySettings(state, input) {
   if (saved.error) return saved
 
   const next = realignPlans(state, saved.state)
-  const { durationSlots, targets } = getRaid(next)
+  const { durationSlots, targets, rules } = getRaid(next)
   const startSlot = sameClockSlot(before.startSlot, state, next)
   const window = slotWindow(next.currentWeek, before.day, startSlot, durationSlots, next.guild)
 
@@ -319,6 +322,6 @@ export function applySettings(state, input) {
   const savedStart = getWeek(next, next.currentWeek).plan?.start
   if (sameRaid && before.saved && savedStart === window.start) return { state: next }
 
-  const team = rebuildTeam(plannerPlayers(next), window, targets, before.team, before.locked)
+  const team = rebuildTeam(plannerPlayers(next), window, targets, before.team, before.locked, rules)
   return { state: setPlan(next, next.currentWeek, { start: window.start, team, locked: before.locked }) }
 }

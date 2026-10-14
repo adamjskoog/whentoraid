@@ -1,6 +1,8 @@
 import { tick } from 'svelte'
 import { app } from '../app.svelte.js'
-import { CHECKIN_HISTORY_WEEKS, memberById } from '../model.js'
+import { CHECKIN_HISTORY_WEEKS, memberById, setCurrentWeek } from '../model.js'
+import { DEFAULT_RAID_ID, setCurrentRaid } from '../raids.js'
+import { parseHash } from '../route.js'
 import { backupJson, loadState, parseState } from '../storage.js'
 import { downloadText } from '../download.js'
 import { addDays, mondayOf, todayIso } from '../time.js'
@@ -291,6 +293,49 @@ function sinceWeek() {
   return addDays(mondayOf(todayIso('UTC')), -7 * CHECKIN_HISTORY_WEEKS)
 }
 
+/** A roster link opened before signing in, kept for the sign-in round trip. */
+const PENDING_LINK_KEY = 'whentoraid-pending-link'
+/** An abandoned sign-in must not send a later one to an old link. */
+const PENDING_LINK_MS = 10 * 60_000
+
+function takePendingLink() {
+  try {
+    const pending = JSON.parse(sessionStorage.getItem(PENDING_LINK_KEY) ?? 'null')
+    sessionStorage.removeItem(PENDING_LINK_KEY)
+    return pending && Date.now() - pending.at < PENDING_LINK_MS ? pending : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A guild named by a shared roster link (`?guild=`), once; the parameter is removed after reading.
+ * After signing in, the link saved before the redirect is used, and its page is restored.
+ */
+function takeRequestedGuild() {
+  const url = new URL(location.href)
+  const pending = takePendingLink()
+  let guildId = url.searchParams.get('guild')
+  let hash = location.hash
+  if (guildId !== null) {
+    url.searchParams.delete('guild')
+    history.replaceState(history.state, '', url)
+  } else if (pending) {
+    guildId = pending.guild
+    hash = pending.hash
+  }
+  return /^[0-9a-f-]{36}$/i.test(guildId ?? '') ? { guildId, hash } : null
+}
+
+/** Open the published roster a link named, in the guild that just loaded. */
+function showLinkedRoster(hash) {
+  const route = parseHash(hash)
+  if (!route.published || !route.week || !app.data) return
+  app.data = setCurrentRaid(setCurrentWeek(app.data, route.week), route.raid ?? DEFAULT_RAID_ID)
+  app.plannerIntent = 'published'
+  app.view = 'planner'
+}
+
 /** The sign-in round trip leaves `?code=` in the address; drop it once the session exists. */
 function cleanAuthParams() {
   const url = new URL(location.href)
@@ -330,8 +375,15 @@ async function onSession(session, generation) {
     const guilds = await listGuilds(supabase)
     if (generation !== sessionGeneration) return
     remote.guilds = guilds
-    if (saved && guilds.some((g) => g.id === saved)) await openGuild(saved, generation)
-    else if (saved) storeGuildId(null)
+    const requested = takeRequestedGuild()
+    const member = (id) => guilds.some((g) => g.id === id)
+    if (requested && !member(requested.guildId))
+      showToast('That roster link is for a guild you have not joined. Ask an officer for an invite.')
+    const chosen = requested && member(requested.guildId) ? requested.guildId : saved
+    if (chosen && member(chosen)) {
+      await openGuild(chosen, generation)
+      if (chosen === requested?.guildId && generation === sessionGeneration) showLinkedRoster(requested.hash)
+    } else if (saved) storeGuildId(null)
   } catch (error) {
     if (generation === sessionGeneration) showToast(error.message)
   } finally {
@@ -341,6 +393,15 @@ async function onSession(session, generation) {
 
 export async function signIn() {
   const redirectTo = `${location.origin}${location.pathname}`
+  // The sign-in redirect returns to the bare address, so a roster link is carried across it.
+  const guild = /[?&]guild=([0-9a-f-]{36})(?:&|$)/i.exec(location.search)?.[1]
+  if (guild) {
+    try {
+      sessionStorage.setItem(PENDING_LINK_KEY, JSON.stringify({ guild, hash: location.hash, at: Date.now() }))
+    } catch {
+      // Without storage the link opens the player's usual guild instead.
+    }
+  }
   const { error } = await supabase.auth.signInWithOAuth({ provider: 'discord', options: { redirectTo } })
   if (error) showToast(error.message)
 }

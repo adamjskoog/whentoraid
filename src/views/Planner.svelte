@@ -1,4 +1,5 @@
 <script>
+  import SectionTabs from '../components/SectionTabs.svelte'
   import AddPlayerDialog from '../components/AddPlayerDialog.svelte'
   import AttendancePanel from '../components/AttendancePanel.svelte'
   import CheckinPanel from '../components/CheckinPanel.svelte'
@@ -30,8 +31,8 @@
   import { ROLES } from '../lib/constants.js'
   import { downloadText } from '../lib/download.js'
   import { backups, conflicts, isAvailable } from '../lib/engine.js'
-  import { displayZone } from '../lib/display.svelte.js'
-  import { clampStartSlot, formatSessionIn, slotWindow } from '../lib/grid.js'
+  import { displayZone, viewerZone } from '../lib/display.svelte.js'
+  import { clampStartSlot, formatSessionHeading, formatSessionIn, slotWindow } from '../lib/grid.js'
   import {
     characterById,
     memberById,
@@ -40,7 +41,7 @@
     setPlan,
     tracksAttendance,
   } from '../lib/model.js'
-  import { canManage } from '../lib/remote/sync.svelte.js'
+  import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import {
     benchMember,
     formatBackups,
@@ -53,7 +54,15 @@
     topDistinctDays,
   } from '../lib/planning.js'
   import { rosterDiscord, rosterMentions, rosterText, splitForDiscord } from '../lib/roster-export.js'
-  import { discordChannel, loadDiscordChannel, postKey, rememberPost } from '../lib/discord-channel.svelte.js'
+  import {
+    discordChannel,
+    hasDiscordChannel,
+    loadDiscordChannel,
+    postKey,
+    rememberPost,
+  } from '../lib/discord-channel.svelte.js'
+  import { compositionIssues } from '../lib/composition-rules.js'
+  import { publishedRosterUrl } from '../lib/route.js'
   import { deleteFromWebhook, postToWebhook } from '../lib/discord-webhook.js'
   import { showToast, offerUndo } from '../lib/toast.svelte.js'
   import { loadRaidResponses, responseKey } from '../lib/raid-responses.svelte.js'
@@ -70,7 +79,23 @@
     watchDelivery,
   } from '../lib/discord-delivery.svelte.js'
 
+  let activeSection = $state('schedule')
   let showPublished = $state(false)
+  const section = $derived(
+    !canManage() || (viewPublished && activeSection === 'schedule') ? 'roster' : activeSection,
+  )
+  // A personal assignment or shared roster link opens the published roster, even if already here.
+  $effect(() => {
+    if (app.plannerIntent !== 'published') return
+    showPublished = true
+    activeSection = 'roster'
+    app.plannerIntent = null
+  })
+  const tabs = $derived([
+    ...(!viewPublished ? [{ id: 'schedule', label: 'Schedule' }] : []),
+    { id: 'roster', label: 'Roster', count: plan.team.length },
+    ...(canManage() ? [{ id: 'responses', label: 'Responses' }] : []),
+  ])
   let undoChange = $state(null)
   const viewPublished = $derived(!canManage() || showPublished)
   const published = $derived(getWeek(app.data, app.data.currentWeek).plan?.published)
@@ -115,7 +140,8 @@
   )
 
   /** Officers see how players answered the published roster; republishing asks everyone again. */
-  let responses = $state({ key: null, byMember: {}, error: '' })
+  let responses = $state({ key: null, byMember: {}, error: '', checkedAt: null })
+  let checkingResponses = $state(false)
   /** Bumped to fetch again: responses are not part of live guild sync. */
   let responsesTick = $state(0)
   const responsesKey = $derived(published ? responseKey(weekIso, app.data.currentRaidId, published) : null)
@@ -124,13 +150,33 @@
     void responsesTick
     if (!key || !canManage()) return
     const raidId = app.data.currentRaidId
+    checkingResponses = true
     loadRaidResponses(weekIso, raidId, published)
       .then((byMember) => {
-        if (key === responsesKey) responses = { key, byMember, error: '' }
+        if (key === responsesKey) responses = { key, byMember, error: '', checkedAt: Date.now() }
       })
       .catch((error) => {
-        if (key === responsesKey) responses = { key, byMember: {}, error: error.message }
+        // Keep the last answers on screen when a background refresh fails.
+        if (key === responsesKey)
+          responses = {
+            ...responses,
+            key,
+            byMember: responses.key === key ? responses.byMember : {},
+            error: error.message,
+          }
       })
+      .finally(() => {
+        if (key === responsesKey) checkingResponses = false
+      })
+  })
+  /** Check again every minute while officers watch the Responses tab and the page is visible. */
+  const RESPONSES_REFRESH_MS = 60_000
+  $effect(() => {
+    if (section !== 'responses' || !responsesKey || !canManage()) return
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') responsesTick += 1
+    }, RESPONSES_REFRESH_MS)
+    return () => clearInterval(timer)
   })
   const inDraft = (memberId) => context.plan.team.some((entry) => entry.memberId === memberId)
 
@@ -197,7 +243,7 @@
     showIssues = false
     offerUndo('Roster published. Draft edits will stay separate.', previous)
     // A roster already in Discord follows what was just published.
-    if (discordChannel.webhookUrl && postedIds.length) void followPublication(postToDiscord)
+    if (hasDiscordChannel() && postedIds.length) void followPublication(postToDiscord)
   }
 
   function withdraw() {
@@ -206,7 +252,7 @@
     app.data = withdrawPlan(app.data)
     showPublished = false
     offerUndo('Published roster withdrawn. Your draft is kept.', previous)
-    if (discordChannel.webhookUrl && postedIds.length) void followPublication(withdrawDiscordPost)
+    if (hasDiscordChannel() && postedIds.length) void followPublication(withdrawDiscordPost)
   }
 
   const totalSlots = $derived(settings.targets.reduce((sum, n) => sum + n, 0))
@@ -220,6 +266,14 @@
   const topDays = $derived(topDistinctDays(context.suggestions, 3))
   const classCount = $derived(
     new Set(plan.team.map((e) => characterById(app.data, e.characterId)?.class)).size,
+  )
+  /** The raid's optional class limits and required utilities, as warnings officers may accept. */
+  const ruleIssues = $derived(
+    compositionIssues(
+      plan.team,
+      players.flatMap((p) => p.characters),
+      settings.rules,
+    ),
   )
   const zone = $derived(displayZone(guild))
   const sessionLabel = $derived(formatSessionIn(plan, zone))
@@ -247,13 +301,13 @@
 
   function rebuild() {
     if (officersOnly()) return
-    savePlan(plan.start, rebuildTeam(players, plan, settings.targets, plan.team, plan.locked))
+    savePlan(plan.start, rebuildTeam(players, plan, settings.targets, plan.team, plan.locked, settings.rules))
     showToast(plan.locked.length ? 'Roster rebuilt around locked players' : 'Roster rebuilt for this session')
   }
 
   function chooseSuggestion(suggestion) {
     const team = plan.locked.length
-      ? rebuildTeam(players, suggestion, settings.targets, plan.team, plan.locked)
+      ? rebuildTeam(players, suggestion, settings.targets, plan.team, plan.locked, settings.rules)
       : suggestion.team
     savePlan(suggestion.start, team)
   }
@@ -267,7 +321,14 @@
     if (officersOnly() || viewPublished) return
     const startSlot = clampStartSlot(slot, settings.durationSlots, guild)
     const window = slotWindow(weekIso, day, startSlot, settings.durationSlots, guild)
-    const { team, replaced } = retimeTeam(players, window, settings.targets, plan.team, plan.locked)
+    const { team, replaced } = retimeTeam(
+      players,
+      window,
+      settings.targets,
+      plan.team,
+      plan.locked,
+      settings.rules,
+    )
     savePlan(window.start, team)
     if (replaced) {
       showToast(
@@ -330,7 +391,7 @@
     ensureSaved()
     app.data = setCancelled(app.data, weekIso, cancelled)
     showToast(cancelled ? 'Raid marked as cancelled' : 'Raid marked as held')
-    if (published && discordChannel.webhookUrl && postedIds.length) void followPublication(postToDiscord)
+    if (published && hasDiscordChannel() && postedIds.length) void followPublication(postToDiscord)
   }
 
   /** Messages to copy by hand when the clipboard API is unavailable (e.g. not a secure context). */
@@ -373,7 +434,7 @@
   let posting = $state(false)
 
   $effect(() => {
-    if (canManage() && usesServerDelivery() && discordChannel.webhookUrl)
+    if (canManage() && usesServerDelivery() && hasDiscordChannel())
       void watchDelivery(weekIso, app.data.currentRaidId)
   })
   /** Only the raid on screen: a slow reload for another raid never shows here. */
@@ -473,6 +534,17 @@
     }
   }
 
+  /** A link to this published roster for guild members; it opens the guild after signing in. */
+  async function copyRosterLink() {
+    const url = publishedRosterUrl(location, remote.guildId, weekIso, app.data.currentRaidId)
+    try {
+      await navigator.clipboard.writeText(url)
+      showToast('Roster link copied. Guild members can open it after signing in.')
+    } catch {
+      manualCopyMessages = [url]
+    }
+  }
+
   function exportRoster() {
     downloadText(`whentoraid-${settings.id}-${weekIso}.txt`, rosterText(app.data, plan, players))
   }
@@ -484,231 +556,273 @@
 
 <svelte:window onfocus={() => (responsesTick += 1)} />
 
-<PageTitle
-  eyebrow={viewPublished ? 'PUBLISHED RAID' : 'RAID PLANNER'}
-  title={settings.name}
-  subtitle={viewPublished && !published ? 'Your officers have not published this raid yet.' : sessionLabel}
-/>
+<div class="planner-page">
+  <PageTitle
+    eyebrow={viewPublished ? 'PUBLISHED RAID' : 'RAID PLANNER'}
+    title={settings.name}
+    subtitle={viewPublished && !published
+      ? 'Your officers have not published this raid yet.'
+      : formatSessionHeading(plan, guild.timezone, viewerZone)}
+  />
 
-<WeekBar />
-<RaidSelector />
-<WeeklyOverview publishedOnly={viewPublished} />
-<section class="panel spaced-top" aria-label="Roster publication">
-  <div class="active-raid-summary">
-    <strong>{settings.name}</strong>
-    <span
-      >{published
-        ? viewPublished
-          ? 'Published roster'
-          : draftChanged
-            ? 'Draft changes pending'
-            : 'Draft matches published'
-        : 'Not published'}</span
-    >
-  </div>
-  {#if canManage() && !viewPublished && published && draftChanged}
-    <section class="publication-review" aria-label="Changes to publish">
-      <h3>Changes to publish</h3>
-      <ul>
-        {#each changes as change, i (i)}
-          <li>
-            {change.kind === 'time'
-              ? `Time: ${formatSessionIn(change.before, zone)} → ${formatSessionIn(change.after, zone)}`
-              : change.message}
-          </li>
-        {/each}
-      </ul>
-    </section>
-  {/if}
-  <div class="buttons">
-    {#if canManage()}
-      <button aria-pressed={!viewPublished} onclick={() => (showPublished = false)}>Edit draft</button>
-      <button aria-pressed={viewPublished} onclick={() => (showPublished = true)}
-        >View published roster</button
+  <div class="planning-context"><RaidSelector /><WeekBar /></div>
+
+  <section class="publication-bar" aria-label="Roster publication">
+    <div class="publication-toolbar">
+      <span class="badge" class:published={viewPublished && !!published}
+        >{published
+          ? viewPublished
+            ? 'Published roster'
+            : draftChanged
+              ? 'Draft changes pending'
+              : 'Draft matches published'
+          : 'Not published'}</span
       >
-      {#if !viewPublished}
-        <button class="primary" disabled={published && !draftChanged} onclick={publish}
-          >{published ? 'Publish draft changes' : 'Publish roster'}</button
-        >
-      {/if}
-      {#if published}<button onclick={withdraw}>Withdraw published roster</button>{/if}
-      {#if discordChannel.webhookUrl && published}
-        <button disabled={posting} onclick={postToDiscord}
-          >{postedIds.length ? 'Update Discord post' : 'Post to Discord'}</button
-        >
-      {/if}
-      {#if discordChannel.webhookUrl && postedIds.length}
-        <button disabled={posting} onclick={deleteDiscordPost}>Delete Discord post</button>
-      {/if}
-    {/if}
-  </div>
-  {#if canManage() && plan.team.length}
-    <label class="checkbox-row">
-      <input
-        type="checkbox"
-        checked={savedPlan?.cancelled ?? false}
-        onchange={(e) => markCancelled(e.currentTarget.checked)}
-      />
-      Raid was cancelled
-    </label>
-  {/if}
-  <p role="status" class="note">
-    {!published
-      ? 'No published roster for this raid yet.'
-      : draftChanged
-        ? 'Published roster is available. Draft changes have not been published.'
-        : 'The draft matches the published roster.'}
-    {viewPublished ? 'Viewing the confirmed roster.' : 'Editing the draft.'}
-    {#if canManage() && discordChannel.webhookUrl && postedIds.length}
-      Posted to Discord; publishing draft changes updates the post.
-    {:else if canManage() && discordChannel.loaded && !discordChannel.webhookUrl}
-      Set a Discord channel in Guild settings to post rosters there directly.
-    {/if}
-  </p>
-  {#if canManage() && usesServerDelivery() && deliveryStatus(shownDelivery)}
-    <p class:warning={needsRetry(shownDelivery)} role="status">
-      {deliveryStatus(shownDelivery)}
-      {#if needsRetry(shownDelivery)}
-        <button
-          disabled={posting}
-          onclick={() => serverAction(() => retryDelivery(weekIso, app.data.currentRaidId))}
-          >Retry Discord post</button
-        >
-      {/if}
-    </p>
-  {/if}
-  {#if savedPlan?.cancelled}<p class="warning">This raid is cancelled.</p>{/if}
-  {#if canManage() && !viewPublished && showIssues && issues.length}
-    <section role="alert" class="publication-review">
-      <h3>Resolve before publishing</h3>
-      <ul>
-        {#each issues as issue, i (i)}
-          <li>
-            <span>{issue.message}</span>
-            {#if issue.memberId}
-              <button onclick={() => (dialog = { kind: 'player', memberId: issue.memberId })}
-                >Review {memberById(app.data, issue.memberId)?.name ?? 'player'}</button
-              >
-            {:else if issue.kind === 'capacity'}
-              <button onclick={() => (dialog = { kind: 'add', role: issue.role })}
-                >Review {issue.role} slots</button
-              >
-            {:else if issue.kind === 'empty'}
-              <button onclick={() => (dialog = { kind: 'add', role: ROLES[0] })}>Add a player</button>
-            {:else if issue.kind === 'cancelled'}
-              <button onclick={() => markCancelled(false)}>Restore raid</button>
-            {/if}
-            {#if issue.kind === 'overlap'}
-              <button
-                onclick={() => {
-                  app.data = setCurrentRaid(setCurrentWeek(app.data, issue.week), issue.raidId)
-                  showIssues = false
-                }}>Open overlapping raid</button
-              >
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    </section>
-  {/if}
-</section>
-{#if canManage() && published && !savedPlan?.cancelled && responses.key === responsesKey}
-  <RaidResponsesPanel
-    team={published.team}
-    byMember={responses.byMember}
-    error={responses.error}
-    canReplace={inDraft}
-    onreplace={replaceMember}
-    onrefresh={() => (responsesTick += 1)}
-  />
-{/if}
-{#if app.data.demoYear}
-  <p class="note">
-    Demo guild · Randomized availability and raid plans for all of {app.data.demoYear}. Load the demo again
-    for a fresh year of sample data.
-  </p>
-{/if}
-
-{#if !viewPublished || published}
-  <PlannerStats
-    {checkedInCount}
-    playerCount={players.length}
-    rosterCount={plan.team.length}
-    {totalSlots}
-    {roleCounts}
-    {problemCount}
-  />
-
-  <div class="workspace">
-    <div>
-      {#if !viewPublished}
-        <div class="section-head">
-          <div>
-            <h2>The best windows</h2>
-            <small>
-              Ranked by role slots filled, then backups for the thinnest role, then who sat out recently, then
-              mains.
-            </small>
+      {#if canManage()}
+        <div class="buttons">
+          <div class="segmented">
+            <button aria-pressed={!viewPublished} onclick={() => (showPublished = false)}>Edit draft</button>
+            <button aria-pressed={viewPublished} onclick={() => (showPublished = true)}
+              >View published roster</button
+            >
           </div>
-          <button onclick={rebuild}>↻ Rebuild roster</button>
+          {#if !viewPublished}<button class="primary" disabled={published && !draftChanged} onclick={publish}
+              >{published ? 'Publish draft changes' : 'Publish roster'}</button
+            >{/if}
         </div>
-        <div class="buttons spaced-top">
-          <button onclick={copyLastWeek}>Copy last week’s roster</button>
-          <button
-            disabled={!undoChange ||
-              undoChange.week !== weekIso ||
-              undoChange.raidId !== app.data.currentRaidId}
-            onclick={undoRoster}>Undo roster change</button
-          >
+      {/if}
+    </div>
+    <details class="publication-options">
+      <summary>Publication &amp; sharing options</summary>
+      <p role="status" class="note">
+        {!published
+          ? 'No published roster for this raid yet.'
+          : draftChanged
+            ? 'Published roster is available. Draft changes have not been published.'
+            : 'The draft matches the published roster.'}
+        {viewPublished
+          ? 'Viewing the published roster. Player confirmations are separate.'
+          : 'Editing the draft. Changes save automatically.'}
+        {#if canManage() && hasDiscordChannel() && postedIds.length}Posted to Discord; publishing draft
+          changes updates the post.
+        {:else if canManage() && discordChannel.loaded && !hasDiscordChannel()}Set a Discord channel in Guild
+          settings to post rosters there directly.{/if}
+      </p>
+      {#if published && remote.guildId}
+        <div class="buttons"><button onclick={copyRosterLink}>Copy roster link</button></div>
+      {/if}
+      {#if canManage()}
+        <div class="buttons">
+          {#if published}<button onclick={withdraw}>Withdraw published roster</button>{/if}
+          {#if hasDiscordChannel() && published}<button disabled={posting} onclick={postToDiscord}
+              >{postedIds.length ? 'Update Discord post' : 'Post to Discord'}</button
+            >{/if}
+          {#if hasDiscordChannel() && postedIds.length}<button onclick={deleteDiscordPost} disabled={posting}
+              >Delete Discord post</button
+            >{/if}
         </div>
+        {#if plan.team.length}<label class="checkbox-row"
+            ><input
+              type="checkbox"
+              checked={savedPlan?.cancelled ?? false}
+              onchange={(event) => markCancelled(event.currentTarget.checked)}
+            />Raid was cancelled</label
+          >{/if}
+      {/if}
+    </details>
+    {#if canManage() && usesServerDelivery() && deliveryStatus(shownDelivery)}
+      <p class:warning={needsRetry(shownDelivery)} role="status">
+        {deliveryStatus(shownDelivery)}
+        {#if needsRetry(shownDelivery)}<button
+            disabled={posting}
+            onclick={() => serverAction(() => retryDelivery(weekIso, app.data.currentRaidId))}
+            >Retry Discord post</button
+          >{/if}
+      </p>
+    {/if}
+    {#if savedPlan?.cancelled}<p class="warning" role="status">This raid is cancelled.</p>{/if}
+    {#if canManage() && !viewPublished && published && draftChanged}
+      <details class="publication-review">
+        <summary>Review changes to publish</summary>
+        <section aria-label="Changes to publish">
+          <h3>Changes to publish</h3>
+          <ul>
+            {#each changes as change, i (i)}
+              <li>
+                {change.kind === 'time'
+                  ? `Time: ${formatSessionIn(change.before, zone)} → ${formatSessionIn(change.after, zone)}`
+                  : change.message}
+              </li>
+            {/each}
+          </ul>
+        </section>
+      </details>
+    {/if}
+    {#if canManage() && !viewPublished && showIssues && issues.length}
+      <section role="alert" class="publication-review">
+        <h3>Resolve before publishing</h3>
+        <ul>
+          {#each issues as issue, i (i)}
+            <li>
+              <span>{issue.message}</span>
+              {#if issue.memberId}
+                <button onclick={() => (dialog = { kind: 'player', memberId: issue.memberId })}
+                  >Review {memberById(app.data, issue.memberId)?.name ?? 'player'}</button
+                >
+              {:else if issue.kind === 'capacity'}
+                <button onclick={() => (dialog = { kind: 'add', role: issue.role })}
+                  >Review {issue.role} slots</button
+                >
+              {:else if issue.kind === 'empty'}
+                <button onclick={() => (dialog = { kind: 'add', role: ROLES[0] })}>Add a player</button>
+              {:else if issue.kind === 'cancelled'}
+                <button onclick={() => markCancelled(false)}>Restore raid</button>
+              {/if}
+              {#if issue.kind === 'overlap'}
+                <button
+                  onclick={() => {
+                    app.data = setCurrentRaid(setCurrentWeek(app.data, issue.week), issue.raidId)
+                    showIssues = false
+                  }}>Open overlapping raid</button
+                >
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+  </section>
 
-        <SuggestionCards
-          suggestions={topDays}
-          {checkedInCount}
-          {totalSlots}
-          targets={settings.targets}
-          selectedStart={plan.start}
-          {zone}
-          onchoose={chooseSuggestion}
-        />
+  {#if !viewPublished || published}
+    <PlannerStats
+      {checkedInCount}
+      playerCount={players.length}
+      rosterCount={plan.team.length}
+      {totalSlots}
+      {roleCounts}
+      {problemCount}
+    />
+  {/if}
 
-        <div class="panel">
+  <SectionTabs
+    id="planner"
+    label="Planning workspace"
+    {tabs}
+    value={section}
+    onselect={(value) => (activeSection = value)}
+  />
+
+  {#if !viewPublished}
+    <div
+      id="planner-panel-schedule"
+      class="planner-section"
+      role="tabpanel"
+      tabindex="0"
+      aria-labelledby="planner-tab-schedule"
+      hidden={section !== 'schedule'}
+    >
+      <div class="schedule-layout">
+        <div>
           <div class="section-head">
-            <h3>Guild availability</h3>
-            <small>Every cell is a full session starting at that time</small>
+            <div>
+              <h2>The best windows</h2>
+              <p class="subtitle">Fill the roles first. Keep backups for the roles you need most.</p>
+            </div>
           </div>
-          <Heatmap
-            {weekIso}
-            grid={guild}
-            {players}
-            suggestions={context.suggestions}
+          <SuggestionCards
+            suggestions={topDays}
+            {checkedInCount}
+            {totalSlots}
             targets={settings.targets}
-            selection={plan}
-            durationSlots={settings.durationSlots}
-            onselect={moveSession}
+            selectedStart={plan.start}
+            {zone}
+            onchoose={chooseSuggestion}
+          />
+          <div class="schedule-next">
+            <span>Selected: <strong>{sessionLabel}</strong></span><button
+              class="primary"
+              onclick={() => (activeSection = 'roster')}>Review roster →</button
+            >
+          </div>
+          <details class="disclosure availability-map">
+            <summary><span>Explore guild availability</span><small>Compare every start time</small></summary>
+            <div class="disclosure-content">
+              <h3>Guild availability</h3>
+              <p class="small-text">Each cell shows a full session starting at that time.</p>
+              <Heatmap
+                {weekIso}
+                grid={guild}
+                {players}
+                suggestions={context.suggestions}
+                targets={settings.targets}
+                selection={plan}
+                durationSlots={settings.durationSlots}
+                onselect={moveSession}
+              />
+            </div>
+          </details>
+          <details class="disclosure">
+            <summary>This week’s other raids</summary><WeeklyOverview publishedOnly={viewPublished} />
+          </details>
+        </div>
+        <div class="planning-side">
+          <CheckinPanel oncopy={copyText} />
+          <ReadinessPanel
+            {sessionLabel}
+            {roleCounts}
+            {readyCounts}
+            targets={settings.targets}
+            {availableCount}
+            backupsLabel={formatBackups(planBackups)}
+            backupsOk={planThinnest > 0}
+            lockedCount={plan.locked.length}
+            {problemCount}
+            {classCount}
           />
         </div>
-      {/if}
+      </div>
+    </div>
+  {/if}
 
+  <div
+    id="planner-panel-roster"
+    class="planner-section"
+    role="tabpanel"
+    tabindex="0"
+    aria-labelledby="planner-tab-roster"
+    hidden={section !== 'roster'}
+  >
+    {#if !viewPublished || published}
       <div class="section-head roster-header">
         <div>
           <h2>Your raid roster</h2>
-          <p class="note">{settings.name}</p>
-          <small
-            >{sessionLabel} · {viewPublished
-              ? 'Published roster'
-              : 'Draft · changes save automatically'}</small
-          >
-          {#if !viewPublished}<small>Open a player’s ⋯ menu for eligibility and recent bench priority.</small
-            >{/if}
+          <p class="subtitle">
+            {viewPublished
+              ? 'Published assignment · attendance is confirmed separately'
+              : 'Draft · changes save automatically'}
+          </p>
         </div>
-        <div class="buttons">
-          <button onclick={copyForDiscord}>Copy for Discord</button>
-          <button onclick={exportCalendar}>Add to calendar (.ics)</button>
-          <button onclick={exportRoster}>Download .txt ↓</button>
-        </div>
+        <details class="export-options">
+          <summary>Share &amp; export</summary>
+          <div class="buttons">
+            <button onclick={copyForDiscord}>Copy for Discord</button><button onclick={exportCalendar}
+              >Add to calendar (.ics)</button
+            ><button onclick={exportRoster}>Download .txt ↓</button>
+          </div>
+        </details>
       </div>
-
+      {#if !viewPublished}<div class="roster-tools buttons">
+          <button onclick={rebuild}>↻ Rebuild roster</button><button onclick={copyLastWeek}
+            >Copy last week’s roster</button
+          >{#if undoChange && undoChange.week === weekIso && undoChange.raidId === app.data.currentRaidId}<button
+              onclick={undoRoster}>Undo roster change</button
+            >{/if}
+        </div>{/if}
+      {#if ruleIssues.length}
+        <ul class="rule-issues warning" role="status" aria-label="Composition rules">
+          {#each ruleIssues as issue, i (i)}<li>{issue.message}</li>{/each}
+        </ul>
+      {/if}
       <RosterBoard
         team={plan.team}
         {players}
@@ -732,26 +846,56 @@
           onall={markEveryone}
         />
       {/if}
-    </div>
-
-    <div>
-      <CheckinPanel oncopy={copyText} />
-
-      <ReadinessPanel
-        {sessionLabel}
-        {roleCounts}
-        {readyCounts}
-        targets={settings.targets}
-        {availableCount}
-        backupsLabel={formatBackups(planBackups)}
-        backupsOk={planThinnest > 0}
-        lockedCount={plan.locked.length}
-        {problemCount}
-        {classCount}
-      />
-    </div>
+    {:else}<div class="panel empty-state">
+        <h2>No published roster yet</h2>
+        <p>Your officers are still planning this raid. Your assignment will appear once they publish.</p>
+      </div>{/if}
   </div>
-{/if}
+
+  {#if canManage()}
+    <div
+      id="planner-panel-responses"
+      class="planner-section"
+      role="tabpanel"
+      tabindex="0"
+      aria-labelledby="planner-tab-responses"
+      hidden={section !== 'responses'}
+    >
+      {#if published && !savedPlan?.cancelled}
+        {#if responses.key === responsesKey}
+          <RaidResponsesPanel
+            team={published.team}
+            byMember={responses.byMember}
+            error={responses.error}
+            checkedAt={responses.checkedAt}
+            checking={checkingResponses}
+            {zone}
+            canReplace={inDraft}
+            onreplace={replaceMember}
+            onrefresh={() => (responsesTick += 1)}
+          />
+        {:else}<p role="status">Loading player responses…</p>{/if}
+      {:else}<div class="panel empty-state">
+          <h2>{savedPlan?.cancelled ? 'This raid is cancelled' : 'Publish before collecting responses'}</h2>
+          <p>
+            {savedPlan?.cancelled
+              ? 'Restore the raid to review player responses.'
+              : 'When the roster is published, players can confirm their place or tell you they can’t make it.'}
+          </p>
+          {#if !savedPlan?.cancelled}<button
+              onclick={() => {
+                showPublished = false
+                activeSection = 'roster'
+              }}>Review the draft roster</button
+            >{/if}
+        </div>{/if}
+    </div>
+  {/if}
+
+  {#if app.data.demoYear}<p class="demo-note">
+      Demo guild · Sample availability and raid plans for {app.data.demoYear}.
+    </p>{/if}
+</div>
 
 <AddPlayerDialog
   open={dialog?.kind === 'add'}
@@ -809,15 +953,6 @@
 </Modal>
 
 <style>
-  .active-raid-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.5rem;
-    margin-bottom: 1rem;
-  }
-  .active-raid-summary span {
-    color: var(--gold);
-  }
   .publication-review {
     margin: 1rem 0;
     padding: 0.75rem 1rem;
@@ -829,5 +964,9 @@
   }
   .publication-review li button {
     margin: 0.25rem;
+  }
+  .rule-issues {
+    margin: 0.75rem 0;
+    padding-left: 1.25rem;
   }
 </style>

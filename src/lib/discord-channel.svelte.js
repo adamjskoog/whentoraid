@@ -12,7 +12,7 @@ import { remote } from './remote/sync.svelte.js'
 const LOCAL_KEY = 'whentoraid-discord-channel'
 /** Posts for weeks older than this are forgotten, as on the server. */
 const KEEP_POST_DAYS = 90
-const EMPTY = { webhookUrl: '', mentionPlayers: false, posts: {} }
+const EMPTY = { webhookUrl: '', channelId: '', mentionPlayers: false, posts: {} }
 
 export const discordChannel = $state({
   /** Which guild the values below belong to: an online guild's id, or "browser". */
@@ -60,16 +60,34 @@ export async function loadDiscordChannel({ force = false } = {}) {
   }
 }
 
-/** Save the channel; an empty URL removes it. Throws a message fit for a toast. */
-export async function saveDiscordChannel({ webhookUrl, mentionPlayers }) {
+/** Whether rosters have somewhere to go: a webhook, or (online) a channel the WhenToRaid bot posts in. */
+export function hasDiscordChannel() {
+  return Boolean(discordChannel.webhookUrl || discordChannel.channelId)
+}
+
+/**
+ * Save the channel; an empty URL and channel ID remove it. A bot channel ID (online guilds only)
+ * takes precedence over the webhook and adds response buttons. Throws a message fit for a toast.
+ */
+export async function saveDiscordChannel({ webhookUrl, mentionPlayers, channelId = '' }) {
   const url = webhookUrl.trim()
+  const channel = remote.guildId ? channelId.trim() : ''
   if (url && !isWebhookUrl(url)) {
     throw new Error('That is not a Discord webhook URL. Copy it from the channel’s Integrations settings.')
   }
-  const sameUrl = url === discordChannel.webhookUrl
-  const posts = url && sameUrl ? recentPosts(discordChannel.posts) : {}
+  if (channel && !/^\d{17,20}$/.test(channel)) throw new Error('A Discord channel ID is 17 to 20 digits.')
+  const sameTarget = url === discordChannel.webhookUrl && channel === discordChannel.channelId
+  const connected = Boolean(url || channel)
+  const posts = connected && sameTarget ? recentPosts(discordChannel.posts) : {}
   if (remote.guildId) {
-    await setGuildDiscord(supabase, remote.guildId, { webhookUrl: url, mentionPlayers })
+    await setGuildDiscord(supabase, remote.guildId, { webhookUrl: url, mentionPlayers, channelId: channel })
+    Object.assign(discordChannel, {
+      webhookUrl: url,
+      channelId: channel,
+      mentionPlayers: Boolean(connected && mentionPlayers),
+      posts,
+    })
+    return
   } else if (url) {
     writeLocal({ webhookUrl: url, mentionPlayers, posts })
   } else {

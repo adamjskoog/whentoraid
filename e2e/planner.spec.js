@@ -1,3 +1,4 @@
+import { expand, navigate } from './helpers.js'
 import { expect, test } from '@playwright/test'
 import { createSeedState } from '../src/lib/seed.js'
 
@@ -11,32 +12,29 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Roster publication' })).toBeVisible()
 })
 
-/** Bench and attendance start collapsed on phones; open the one a test needs. */
-async function expand(page, title) {
-  const section = page.locator('details').filter({ has: page.locator('summary', { hasText: title }) })
-  if (!(await section.evaluate((el) => el.open))) await section.locator('summary').click()
-}
-
 test('the demo week suggests a full raid and groups the bench', async ({ page }) => {
   const top = page.getByRole('button', { name: /TOP SUGGESTION/ })
   await expect(top).toContainText('20 / 20 roles filled')
+  await page.getByRole('tab', { name: /^Roster/ }).click()
   await expand(page, 'On the bench')
   await expect(page.getByRole('heading', { name: /Free for this session/ })).toBeVisible()
 })
 
 test('record attendance after the raid', async ({ page }) => {
   await expect(page.getByText(/After the raid/)).toHaveCount(0)
-  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await navigate(page, 'Guild settings')
+  await expand(page, 'Attendance')
   await page.getByRole('checkbox', { name: 'Track attendance after each raid' }).check()
   await page.getByRole('button', { name: 'Save settings' }).click()
 
+  await page.getByRole('tab', { name: /^Roster/ }).click()
   await expand(page, 'After the raid')
   const group = page.getByRole('group', { name: 'Attendance for Stoneguard' })
   await group.getByRole('button', { name: 'Late' }).click()
   await expect(group.getByRole('button', { name: 'Late' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByText(/1 of 20 recorded/)).toBeVisible()
 
-  await page.getByRole('button', { name: /Guild members/ }).click()
+  await navigate(page, 'Guild members')
   const adam = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: /Adam/ }) })
   await expect(adam).toContainText('0 attended · 1 late · 0 no-show')
 })
@@ -52,6 +50,8 @@ test('next week is empty, and the reminder is ready to copy', async ({ page, con
 })
 
 test('download the raid as a calendar file', async ({ page }) => {
+  await page.getByRole('tab', { name: /^Roster/ }).click()
+  await expand(page, 'Share & export')
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('button', { name: 'Add to calendar (.ics)' }).click(),
@@ -61,6 +61,7 @@ test('download the raid as a calendar file', async ({ page }) => {
 
 test('the availability map can be driven from the keyboard', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Keyboard navigation is a desktop concern')
+  await expand(page, 'Explore guild availability')
   const map = page.locator('.heatmap')
   await map.locator('.cell[tabindex="0"]').focus()
   const start = await page.evaluate(() => document.activeElement.dataset.day)
@@ -73,7 +74,7 @@ test('the availability map can be driven from the keyboard', async ({ page, isMo
 })
 
 test('Back with unsaved guild settings stays put until the changes are discarded', async ({ page }) => {
-  await page.getByRole('button', { name: /Guild settings/ }).click()
+  await navigate(page, 'Guild settings')
   await page.getByLabel('Guild name').fill('Renamed')
 
   await page.goBack()

@@ -1,7 +1,7 @@
 import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
 import { isSafeId } from './ids.js'
 import { STATE_VERSION } from './model.js'
-import { isIsoDate, isValidTimeZone } from './time.js'
+import { addDays, isIsoDate, isValidTimeZone } from './time.js'
 import { DEFAULT_RAID_ID, defaultRaids, validateRaid } from './raids.js'
 
 const STORAGE_KEY = 'whentoraid-v3'
@@ -86,11 +86,23 @@ function isCharacter(character, memberIds) {
   )
 }
 
-function isCheckin(checkin) {
+const isOptionalRanges = (value) => value === undefined || (Array.isArray(value) && value.every(isRange))
+
+/** Absent days are dates inside the check-in's own week. */
+const isAbsentDates = (value, weekIso) =>
+  value === undefined ||
+  (Array.isArray(value) &&
+    value.length <= 7 &&
+    value.every((dateIso) => isIsoDate(dateIso) && dateIso >= weekIso && dateIso <= addDays(weekIso, 6)))
+
+function isCheckin(checkin, weekIso) {
   return (
     isObject(checkin) &&
     Array.isArray(checkin.ranges) &&
     checkin.ranges.every(isRange) &&
+    isOptionalRanges(checkin.preferredRanges) &&
+    isOptionalRanges(checkin.tentativeRanges) &&
+    isAbsentDates(checkin.absentDates, weekIso) &&
     isStringList(checkin.declined) &&
     (checkin.raids === undefined ||
       (isObject(checkin.raids) &&
@@ -116,7 +128,9 @@ function isWeek([weekIso, week]) {
     isIsoDate(weekIso) &&
     isObject(week) &&
     isObject(week.checkins) &&
-    Object.entries(week.checkins).every(([memberId, checkin]) => isSafeId(memberId) && isCheckin(checkin)) &&
+    Object.entries(week.checkins).every(
+      ([memberId, checkin]) => isSafeId(memberId) && isCheckin(checkin, weekIso),
+    ) &&
     isObject(week.plans) &&
     Object.entries(week.plans).every(([raidId, plan]) => isSafeId(raidId) && isPlan(plan))
   )

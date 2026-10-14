@@ -2,22 +2,38 @@
   import { app } from '../lib/app.svelte.js'
   import { characterById, memberById } from '../lib/model.js'
   import { responseSummary } from '../lib/raid-services.js'
+  import { viewerZone } from '../lib/display.svelte.js'
+  import { formatClock, wallTime } from '../lib/time.js'
 
   /**
    * Officers: who has confirmed the published roster, who reported a problem, and who has not
    * answered. `canReplace(memberId)` says whether the player is still in the draft to swap out.
    */
-  let { team, byMember, error = '', canReplace, onreplace, onrefresh } = $props()
+  let {
+    team,
+    byMember,
+    error = '',
+    checkedAt = null,
+    checking = false,
+    zone,
+    canReplace,
+    onreplace,
+    onrefresh,
+  } = $props()
 
   const summary = $derived(responseSummary(team, byMember))
+  const checkedLabel = $derived(
+    checkedAt === null ? '' : `Last checked ${formatClock(wallTime(checkedAt, zone ?? viewerZone).minutes)}`,
+  )
   const name = (memberId) => memberById(app.data, memberId)?.name ?? 'Removed player'
 </script>
 
 <section class="panel spaced-top" aria-label="Player responses">
   <div class="heading">
     <h2>Player responses</h2>
-    <button onclick={onrefresh}>Refresh</button>
+    <button onclick={onrefresh} disabled={checking}>{checking ? 'Checking…' : 'Refresh'}</button>
   </div>
+  {#if checkedLabel}<p class="note" role="status">{checkedLabel} · updates every minute while open</p>{/if}
   {#if error}
     <p class="warning">Responses could not be loaded: {error}</p>
   {:else}

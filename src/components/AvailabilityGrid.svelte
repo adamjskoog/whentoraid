@@ -13,7 +13,19 @@
    * Dragging follows the pointer with elementFromPoint rather than per-cell enter events, because a
    * touch pointer stays captured by the cell it started on.
    */
-  let { weekIso, grid, ranges, onpaint, oneditstart = () => {}, oneditend = () => {} } = $props()
+  let {
+    weekIso,
+    grid,
+    ranges,
+    onpaint,
+    oneditstart = () => {},
+    oneditend = () => {},
+    /** Shown but not painted: preferred times lie within firm ones, tentative times outside them. */
+    preferredRanges = [],
+    tentativeRanges = [],
+    /** What painting marks, e.g. "available" or "tentative", for the cell labels. */
+    kindLabel = 'available',
+  } = $props()
 
   /** While dragging: true paints available, false erases, null means not painting. */
   let paintValue = null
@@ -101,10 +113,16 @@
 
 {#snippet cell(day, slot)}
   {@const mine = isMine(day, slot)}
-  {@const label = `${formatSlotDay(weekIso, day, slot, grid, zone)} ${mine ? 'available' : 'unavailable'}`}
+  {@const preferred = covers(preferredRanges, slotWindows[day][slot])}
+  {@const tentative = covers(tentativeRanges, slotWindows[day][slot])}
+  {@const status = mine ? kindLabel : kindLabel === 'available' ? 'unavailable' : `not ${kindLabel}`}
+  {@const extra = `${preferred && kindLabel !== 'preferred' ? ', preferred' : ''}${tentative && kindLabel !== 'tentative' ? ', tentative' : ''}`}
+  {@const label = `${formatSlotDay(weekIso, day, slot, grid, zone)} ${status}${extra}`}
   <button
     class="cell"
     class:mine
+    class:preferred
+    class:tentative
     data-paint-cell
     data-day={day}
     data-slot={slot}
@@ -144,4 +162,26 @@
     arrow keys to move, Space to toggle.</span
   >
   <span>■ Available</span>
+  {#if preferredRanges.length || kindLabel === 'preferred'}<span class="key preferred">■ Preferred</span>{/if}
+  {#if tentativeRanges.length || kindLabel === 'tentative'}<span class="key tentative">■ Tentative</span>{/if}
 </div>
+
+<style>
+  .cell.preferred {
+    box-shadow: inset 0 0 0 2px var(--gold, #d4af37);
+  }
+  .cell.tentative {
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 4px,
+      color-mix(in srgb, var(--gold, #d4af37) 45%, transparent) 4px 6px
+    );
+  }
+  .key.preferred {
+    color: var(--gold, #d4af37);
+  }
+  .key.tentative {
+    opacity: 0.85;
+    font-style: italic;
+  }
+</style>

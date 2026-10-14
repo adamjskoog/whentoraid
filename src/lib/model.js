@@ -1,7 +1,8 @@
 import { CLASS_COLORS, DURATION_OPTIONS, MAX_RAID_SIZE, ROLES } from './constants.js'
 import { gridFromHours, raidHours, validateDeadline, validateGuild } from './guild.js'
 import { addInterval, removeInterval } from './intervals.js'
-import { addDays, isIsoDate, mondayOf, todayIso } from './time.js'
+import { addDays, daysBetween, isIsoDate, mondayOf, todayIso } from './time.js'
+import { slotWindow } from './grid.js'
 import { getRaid, validateRaid } from './raids.js'
 import { templateFor, templateFromRanges, templateRanges } from './availability-template.js'
 import { own } from './ids.js'
@@ -17,8 +18,13 @@ import { own } from './ids.js'
  *   and, online, to let them sign in. `officer` matters only for online guilds.
  * @typedef {{ id: string, memberId: string, name: string, class: string, spec: string, role: string, realm: string, main: boolean, retired?: boolean }} Character
  *   `retired` characters were deleted by their player: hidden everywhere except past and current rosters.
- * @typedef {{ checkedIn: boolean, ranges: Interval[], declined: string[] }} Checkin
+ * @typedef {{
+ *   checkedIn: boolean, ranges: Interval[], declined: string[],
+ *   preferredRanges?: Interval[], tentativeRanges?: Interval[], absentDates?: string[],
+ * }} Checkin
  *   `checkedIn` means the member responded for the week, even if the answer is "not available".
+ *   `ranges` are firm times. `preferredRanges` lie within them; `tentativeRanges` never overlap them.
+ *   `absentDates` are guild days this week the member is away: their times are kept but not offered.
  * @typedef {'attended' | 'late' | 'noshow'} Attendance
  * @typedef {{ start: number, team: RosterEntry[], locked?: string[], attendance?: Record<string, Attendance>, cancelled?: boolean }} Plan
  *   `start` is the session start in UTC ms. `locked` lists member IDs that rebuilds must keep.
@@ -58,11 +64,28 @@ export function getWeek(state, weekIso) {
   return { ...week, plan: own(week.plans, state.currentRaidId) ?? null }
 }
 
-export function getCheckin(state, weekIso, memberId) {
+/** The member's check-in as saved (or filled in by their usual schedule), before absences apply. */
+export function getRawCheckin(state, weekIso, memberId) {
   const saved = own(getWeek(state, weekIso).checkins, memberId)
   if (saved) return saved
   const ranges = templateRanges(own(state.templates, memberId), weekIso)
   return ranges === null ? emptyCheckin() : { checkedIn: true, ranges, declined: [] }
+}
+
+/** The member's check-in with absent days removed from every kind of availability. */
+export function getCheckin(state, weekIso, memberId) {
+  const checkin = getRawCheckin(state, weekIso, memberId)
+  if (!checkin.absentDates?.length) return checkin
+  const windows = checkin.absentDates.map((dateIso) =>
+    slotWindow(weekIso, daysBetween(weekIso, dateIso), 0, state.guild.slotsPerDay, state.guild),
+  )
+  const mask = (ranges) => windows.reduce(removeInterval, ranges ?? [])
+  return {
+    ...checkin,
+    ranges: mask(checkin.ranges),
+    preferredRanges: mask(checkin.preferredRanges),
+    tentativeRanges: mask(checkin.tentativeRanges),
+  }
 }
 
 export function memberById(state, memberId) {
@@ -93,9 +116,13 @@ export function enginePlayers(state, weekIso) {
       id: member.id,
       checkedIn: checkin.checkedIn,
       ranges: checkin.ranges,
+      tentativeRanges: checkin.tentativeRanges ?? [],
+      preferredRanges: checkin.preferredRanges ?? [],
       characters: charactersOf(state, member.id).map((c) => ({
         id: c.id,
         role: c.role,
+        class: c.class,
+        spec: c.spec,
         main: c.main,
         offered: isOffered(checkin, c.id, state.currentRaidId),
       })),
@@ -134,10 +161,11 @@ export function pruneOldWeeks(state, thisWeekIso, keepWeeks = CHECKIN_HISTORY_WE
   return { ...state, weeks }
 }
 
+/** Edits apply to the saved check-in, so absences never erase the times underneath them. */
 function withCheckin(state, weekIso, memberId, update) {
   return updateWeek(state, weekIso, (week) => ({
     ...week,
-    checkins: { ...week.checkins, [memberId]: update(getCheckin(state, weekIso, memberId)) },
+    checkins: { ...week.checkins, [memberId]: update(getRawCheckin(state, weekIso, memberId)) },
   }))
 }
 
@@ -151,16 +179,104 @@ export function restoreCheckin(state, weekIso, memberId, checkin) {
 
 // Check-ins save as they are edited: any change counts immediately and marks the member as checked in.
 export function setSlotAvailable(state, weekIso, memberId, interval, available) {
-  return withCheckin(state, weekIso, memberId, (checkin) => ({
-    ...checkin,
-    checkedIn: true,
-    ranges: available ? addInterval(checkin.ranges, interval) : removeInterval(checkin.ranges, interval),
-  }))
+  return setAvailabilityKind(state, weekIso, memberId, interval, 'firm', available)
+}
+
+export const AVAILABILITY_KINDS = ['preferred', 'firm', 'tentative']
+
+function withKinds(checkin, { ranges, preferredRanges, tentativeRanges }) {
+  return { ...checkin, checkedIn: true, ranges, preferredRanges, tentativeRanges }
+}
+
+/**
+ * Mark `interval` as one kind of availability (`on`), or clear that kind from it.
+ * Preferred times are firm. Firm and tentative never overlap, so a tentative player can never make a
+ * roster look guaranteed. Clearing "preferred" keeps the time firm; clearing "firm" clears preferred too.
+ * @param {'preferred' | 'firm' | 'tentative'} kind
+ */
+export function setAvailabilityKind(state, weekIso, memberId, interval, kind, on) {
+  if (!AVAILABILITY_KINDS.includes(kind)) return state
+  return withCheckin(state, weekIso, memberId, (checkin) => {
+    let ranges = checkin.ranges
+    let preferredRanges = checkin.preferredRanges ?? []
+    let tentativeRanges = checkin.tentativeRanges ?? []
+    if (on) {
+      ranges = kind === 'tentative' ? removeInterval(ranges, interval) : addInterval(ranges, interval)
+      preferredRanges =
+        kind === 'preferred'
+          ? addInterval(preferredRanges, interval)
+          : removeInterval(preferredRanges, interval)
+      tentativeRanges =
+        kind === 'tentative'
+          ? addInterval(tentativeRanges, interval)
+          : removeInterval(tentativeRanges, interval)
+    } else if (kind === 'tentative') {
+      tentativeRanges = removeInterval(tentativeRanges, interval)
+    } else {
+      preferredRanges = removeInterval(preferredRanges, interval)
+      if (kind === 'firm') ranges = removeInterval(ranges, interval)
+    }
+    return withKinds(checkin, { ranges, preferredRanges, tentativeRanges })
+  })
 }
 
 /** "Can't make it this week": no availability, but the member has still responded. */
 export function markUnavailable(state, weekIso, memberId) {
-  return withCheckin(state, weekIso, memberId, (checkin) => ({ ...checkin, checkedIn: true, ranges: [] }))
+  return withCheckin(state, weekIso, memberId, (checkin) =>
+    withKinds(checkin, { ranges: [], preferredRanges: [], tentativeRanges: [] }),
+  )
+}
+
+/** Longest absence one change may set, in days (a year, leap day included). */
+export const MAX_ABSENCE_DAYS = 366
+
+/**
+ * Mark the member away (or back) on every day from `fromIso` to `toIso`, inclusive. Their times stay
+ * saved underneath, so removing the absence restores them. Being away counts as responding; removing
+ * the last away day from a week with no times leaves that week unanswered again.
+ * @returns {{ state: AppState, error?: string }}
+ */
+export function setAbsenceDates(state, memberId, fromIso, toIso, absent) {
+  if (!memberById(state, memberId)) return { state, error: 'Player not found.' }
+  if (!isIsoDate(fromIso) || !isIsoDate(toIso)) return { state, error: 'Choose valid dates.' }
+  const span = daysBetween(fromIso, toIso)
+  if (span < 0) return { state, error: 'The last day must be on or after the first day.' }
+  if (span >= MAX_ABSENCE_DAYS) return { state, error: 'Choose an absence of one year or less.' }
+
+  let next = state
+  for (let weekIso = mondayOf(fromIso); weekIso <= toIso; weekIso = addDays(weekIso, 7)) {
+    const days = Array.from({ length: 7 }, (_, d) => addDays(weekIso, d)).filter(
+      (dateIso) => dateIso >= fromIso && dateIso <= toIso,
+    )
+    next = withCheckin(next, weekIso, memberId, (checkin) => {
+      const { absentDates: previous = [], ...rest } = checkin
+      const kept = previous.filter((dateIso) => !days.includes(dateIso))
+      const absentDates = absent ? [...kept, ...days].sort() : kept
+      // Without away days or any times left, the week no longer holds an answer.
+      const answered =
+        absentDates.length > 0 || checkin.ranges.length > 0 || checkin.tentativeRanges?.length > 0
+      return {
+        ...rest,
+        checkedIn: absent || (checkin.checkedIn && answered),
+        ...(absentDates.length ? { absentDates } : {}),
+      }
+    })
+  }
+  return { state: next }
+}
+
+/** The member's absences from today on, merged into date spans. */
+export function upcomingAbsences(state, memberId, now = Date.now()) {
+  const today = todayIso(state.guild.timezone, now)
+  const dates = Object.values(state.weeks)
+    .flatMap((week) => own(week.checkins, memberId)?.absentDates ?? [])
+    .filter((dateIso) => dateIso >= today)
+    .sort()
+  return dates.reduce((spans, dateIso) => {
+    const last = spans.at(-1)
+    if (last && addDays(last.to, 1) === dateIso) return [...spans.slice(0, -1), { ...last, to: dateIso }]
+    return [...spans, { from: dateIso, to: dateIso }]
+  }, [])
 }
 
 export function setCharacterOffered(
@@ -225,7 +341,9 @@ export function removeAvailabilityTemplate(state, memberId) {
 export function useAvailabilityTemplate(state, weekIso, memberId) {
   const ranges = templateRanges(own(state.templates, memberId), weekIso)
   if (ranges === null) return state
-  return withCheckin(state, weekIso, memberId, (checkin) => ({ ...checkin, checkedIn: true, ranges }))
+  return withCheckin(state, weekIso, memberId, (checkin) =>
+    withKinds(checkin, { ranges, preferredRanges: [], tentativeRanges: [] }),
+  )
 }
 
 /** True when the member offers at least one character this week, so the planner can place them. */
