@@ -71,7 +71,7 @@ select pg_temp.save(jsonb_build_array(
 select pg_temp.save(jsonb_build_array(pg_temp.plan_row((select pair from team), 1000)));
 reset role;
 select is((select count(*)::int from public.discord_deliveries), 0, 'no channel, no delivery');
-select is((select count(*)::int from public.raid_calendar_events where not cancelled), 2,
+select is((select count(*)::int from public.raid_calendar_events where not cancelled and guild_id = (select guild from t)), 2,
   'publishing adds a calendar event for each rostered player');
 
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000a1');
@@ -106,7 +106,7 @@ select lives_ok($$ select public.checkpoint_discord_delivery((select (job->>'id'
 select public.finish_discord_delivery((select (job->>'id')::uuid from t), (select (job->>'lease_token')::uuid from t),
   (select (job->>'version')::bigint from t));
 select is((select status from public.discord_deliveries), 'sent', 'the delivery is sent');
-select is((select posts -> ((select week from t)::text || '/raid-20') from public.guild_discord),
+select is((select posts -> ((select week from t)::text || '/raid-20') from public.guild_discord where guild_id = (select guild from t)),
   '["1300000000000000001"]'::jsonb, 'the channel remembers the message');
 
 -- Republishing a posted roster queues an edit of the same message automatically.

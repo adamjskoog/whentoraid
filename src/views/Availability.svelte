@@ -16,6 +16,8 @@
   import { canManage } from '../lib/remote/sync.svelte.js'
   import { CLASS_COLORS } from '../lib/constants.js'
   import { availabilitySource } from '../lib/personal-raids.js'
+  import { slotWindow } from '../lib/grid.js'
+  import { addDays, daysBetween, formatMonthDay, mondayOf } from '../lib/time.js'
   import {
     charactersOf,
     getCheckin,
@@ -24,9 +26,11 @@
     isOffered,
     markUnavailable,
     restoreCheckin,
+    setAbsenceDates,
+    setAvailabilityKind,
     setCharacterOffered,
-    setSlotAvailable,
     setRaidParticipation,
+    upcomingAbsences,
     saveAvailabilityTemplate,
     removeAvailabilityTemplate,
     useAvailabilityTemplate,
@@ -85,13 +89,74 @@
 
   const status = $derived.by(() => {
     if (!checkin.checkedIn) return 'Not checked in yet · mark your times and they save automatically'
+    if (checkin.ranges.length === 0 && checkin.tentativeRanges?.length)
+      return 'Checked in · only tentative times this week'
     if (checkin.ranges.length === 0) return 'Checked in · not available this week'
     return 'Checked in · changes save automatically and count right away'
   })
 
+  /** What painting marks. Preferred times are firm; tentative times never count as firm. */
+  let kind = $state('firm')
+  const KIND_LABELS = { firm: 'available', preferred: 'preferred', tentative: 'tentative' }
+  const kindRanges = $derived(
+    kind === 'preferred'
+      ? (checkin.preferredRanges ?? [])
+      : kind === 'tentative'
+        ? (checkin.tentativeRanges ?? [])
+        : checkin.ranges,
+  )
+
+  /** Guild days this week the player marked themselves away. */
+  const awayWindows = $derived(
+    (checkin.absentDates ?? []).map((dateIso) =>
+      slotWindow(weekIso, daysBetween(weekIso, dateIso), 0, app.data.guild.slotsPerDay, app.data.guild),
+    ),
+  )
+
   function paint(interval, available) {
     if (closed) return
-    app.data = setSlotAvailable(app.data, weekIso, memberId, interval, available)
+    if (awayWindows.some((away) => away.start < interval.end && interval.start < away.end)) {
+      showToast('You are marked away that day. Remove the away dates first.')
+      return
+    }
+    app.data = setAvailabilityKind(app.data, weekIso, memberId, interval, kind, available)
+  }
+
+  let awayFrom = $state('')
+  let awayTo = $state('')
+  const absences = $derived(upcomingAbsences(app.data, memberId, now))
+
+  /** A player cannot change a week whose check-ins have closed; officers can. */
+  function closedWeekIn(fromIso, toIso) {
+    if (canManage()) return null
+    for (let week = mondayOf(fromIso); week <= toIso; week = addDays(week, 7)) {
+      if (checkinsClosed(app.data, week, now)) return week
+    }
+    return null
+  }
+
+  function changeAbsence(fromIso, toIso, away) {
+    const closedWeek = closedWeekIn(fromIso, toIso)
+    if (closedWeek) {
+      showToast(
+        `Check-ins for the week of ${formatMonthDay(closedWeek)} have closed. Ask an officer to change it.`,
+      )
+      return false
+    }
+    const previous = app.data
+    const result = setAbsenceDates(app.data, memberId, fromIso, toIso, away)
+    if (result.error) {
+      showToast(result.error)
+      return false
+    }
+    app.data = result.state
+    offerUndo(away ? 'Away dates saved. Your times are kept underneath.' : 'Away dates removed.', previous)
+    return true
+  }
+
+  function addAbsence(event) {
+    event.preventDefault()
+    if (changeAbsence(awayFrom, awayTo || awayFrom, true)) awayFrom = awayTo = ''
   }
 
   function beginEdit() {
@@ -202,15 +267,58 @@
         </p>
       {/if}
     </details>
+    <details class="usual-schedule">
+      <summary>Away dates{absences.length ? ` (${absences.length})` : ''}</summary>
+      <p class="note">
+        Going on holiday? Mark the days you are away. Your usual times stay saved and come back afterwards.
+      </p>
+      <form class="away-form" onsubmit={addAbsence}>
+        <label class="field">From<input type="date" required bind:value={awayFrom} /></label>
+        <label class="field">To<input type="date" min={awayFrom} bind:value={awayTo} /></label>
+        <button>Mark away</button>
+      </form>
+      {#if absences.length}
+        <ul class="away-list">
+          {#each absences as span (span.from)}
+            <li>
+              <span
+                >{formatMonthDay(span.from)}{span.to !== span.from
+                  ? ` – ${formatMonthDay(span.to)}`
+                  : ''}</span
+              >
+              <button onclick={() => changeAbsence(span.from, span.to, false)}>Remove</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </details>
+    {#if checkin.absentDates?.length}
+      <p class="note" role="status">
+        Away this week: {checkin.absentDates.map((date) => formatMonthDay(date)).join(', ')}.
+      </p>
+    {/if}
     <div class="buttons editor-choice" role="group" aria-label="Availability editor">
       <button aria-pressed={editor === 'ranges'} onclick={() => (editor = 'ranges')}>Time ranges</button>
       <button aria-pressed={editor === 'grid'} onclick={() => (editor = 'grid')}>Paint grid</button>
     </div>
+    <div class="buttons kind-choice" role="group" aria-label="Mark times as">
+      <span>Mark as:</span>
+      <button aria-pressed={kind === 'firm'} onclick={() => (kind = 'firm')}>Available</button>
+      <button aria-pressed={kind === 'preferred'} onclick={() => (kind = 'preferred')}>Preferred</button>
+      <button aria-pressed={kind === 'tentative'} onclick={() => (kind = 'tentative')}>Tentative</button>
+    </div>
+    {#if kind !== 'firm'}
+      <p class="note">
+        {kind === 'preferred'
+          ? 'Preferred times are times you can definitely make and would most like to raid.'
+          : 'Tentative times are maybes. Officers see them, but you are only rostered there if they confirm with you.'}
+      </p>
+    {/if}
     {#if editor === 'ranges'}
       <AvailabilityRanges
         {weekIso}
         grid={app.data.guild}
-        ranges={checkin.ranges}
+        ranges={kindRanges}
         onpaint={paint}
         oneditstart={beginEdit}
         oneditend={endEdit}
@@ -219,7 +327,10 @@
       <AvailabilityGrid
         {weekIso}
         grid={app.data.guild}
-        ranges={checkin.ranges}
+        ranges={kindRanges}
+        preferredRanges={checkin.preferredRanges ?? []}
+        tentativeRanges={checkin.tentativeRanges ?? []}
+        kindLabel={KIND_LABELS[kind]}
         onpaint={paint}
         oneditstart={beginEdit}
         oneditend={endEdit}
@@ -284,5 +395,26 @@
 <style>
   .editor-choice {
     margin: 1rem 0;
+  }
+  .kind-choice {
+    align-items: center;
+    margin: 0 0 1rem;
+  }
+  .away-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: end;
+  }
+  .away-list {
+    list-style: none;
+    padding: 0;
+  }
+  .away-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.25rem 0;
   }
 </style>

@@ -9,6 +9,7 @@
   /** Where officers connect a Discord channel, so published rosters can be posted there. */
   let busy = $state(false)
   let webhookUrl = $state('')
+  let channelId = $state('')
   let mentionPlayers = $state(false)
 
   $effect(() => {
@@ -19,6 +20,7 @@
   $effect(() => {
     if (!discordChannel.loaded) return
     webhookUrl = discordChannel.webhookUrl
+    channelId = discordChannel.channelId
     mentionPlayers = discordChannel.mentionPlayers
   })
 
@@ -37,13 +39,16 @@
   function save(event) {
     event.preventDefault()
     run(
-      () => saveDiscordChannel({ webhookUrl, mentionPlayers }),
-      webhookUrl.trim() ? 'Discord channel saved.' : 'Discord channel removed.',
+      () => saveDiscordChannel({ webhookUrl, mentionPlayers, channelId }),
+      webhookUrl.trim() || channelId.trim() ? 'Discord channel saved.' : 'Discord channel removed.',
     )
   }
 
   function remove() {
-    run(() => saveDiscordChannel({ webhookUrl: '', mentionPlayers: false }), 'Discord channel removed.')
+    run(
+      () => saveDiscordChannel({ webhookUrl: '', mentionPlayers: false, channelId: '' }),
+      'Discord channel removed.',
+    )
   }
 
   const sendTest = () =>
@@ -55,9 +60,11 @@
       'Test message sent. Check the channel in Discord.',
     )
 
-  const saved = $derived(discordChannel.webhookUrl !== '')
+  const saved = $derived(discordChannel.webhookUrl !== '' || discordChannel.channelId !== '')
   const changed = $derived(
-    webhookUrl.trim() !== discordChannel.webhookUrl || mentionPlayers !== discordChannel.mentionPlayers,
+    webhookUrl.trim() !== discordChannel.webhookUrl ||
+      channelId.trim() !== discordChannel.channelId ||
+      mentionPlayers !== discordChannel.mentionPlayers,
   )
 </script>
 
@@ -94,6 +101,23 @@
         bind:value={webhookUrl}
       />
     </label>
+    {#if remote.guildId}
+      <label class="field">
+        Bot channel ID <small>(optional: adds Confirm and Can’t attend buttons)</small>
+        <input
+          name="channelId"
+          inputmode="numeric"
+          autocomplete="off"
+          pattern={'\\d{17,20}'}
+          placeholder="Right-click the channel, then Copy Channel ID"
+          bind:value={channelId}
+        />
+      </label>
+      <p class="note">
+        Requires the WhenToRaid bot in your server with permission to send messages in that channel, and your
+        Discord server ID in Raid rules. When set, the bot posts rosters instead of the webhook.
+      </p>
+    {/if}
     <label class="checkbox-row">
       <input type="checkbox" bind:checked={mentionPlayers} />
       Mention rostered players who have a Discord ID when a roster is first posted
@@ -106,7 +130,9 @@
     <div class="buttons">
       <button class="primary" disabled={busy || !changed}>Save channel</button>
       {#if saved}
-        <button type="button" disabled={busy || changed} onclick={sendTest}>Send test message</button>
+        {#if discordChannel.webhookUrl}<button type="button" disabled={busy || changed} onclick={sendTest}
+            >Send test message</button
+          >{/if}
         <button type="button" disabled={busy} onclick={remove}>Remove channel</button>
       {/if}
     </div>

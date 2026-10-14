@@ -4,7 +4,9 @@
   import InlineSaveStatus from '../components/InlineSaveStatus.svelte'
   import RaidResponse from '../components/RaidResponse.svelte'
   import CalendarSubscription from '../components/CalendarSubscription.svelte'
-  import { remote } from '../lib/remote/sync.svelte.js'
+  import OfficerDashboard from '../components/OfficerDashboard.svelte'
+  import RaidMonth from '../components/RaidMonth.svelte'
+  import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import { app } from '../lib/app.svelte.js'
   import { viewerZone } from '../lib/display.svelte.js'
   import { getCheckin, memberById } from '../lib/model.js'
@@ -44,6 +46,8 @@
   title="My next raid"
   subtitle={`Your assignments and availability, in ${viewerZone.replaceAll('_', ' ')}.`}
 />
+
+{#if canManage()}<OfficerDashboard {now} />{/if}
 
 <div class="home-priorities">
   <section class="panel next-raid" aria-label="Next raid assignment">
@@ -135,6 +139,8 @@
     </ul>
   </section>
 {/if}
+
+<RaidMonth />
 
 {#if remote.guildId && remote.memberId === memberId}
   <div class="spaced-top"><CalendarSubscription /></div>

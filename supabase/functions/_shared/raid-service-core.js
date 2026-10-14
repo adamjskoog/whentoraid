@@ -120,28 +120,55 @@ export function reminderMessages(payload) {
   return messages
 }
 
-/** Creates are checkpointed immediately. An ambiguous create must be reconciled, never blindly retried. */
+const WEBHOOK_URL =
+  /^https:\/\/(ptb\.|canary\.)?discord(app)?\.com\/api\/webhooks\/\d{17,20}\/[A-Za-z0-9_-]{20,100}$/
+
+/**
+ * Where messages go: a channel webhook URL, or `{ type: 'bot', channelId, token }` for messages the
+ * application posts itself. Only bot messages can carry response buttons.
+ */
+function transport(target) {
+  if (target?.type === 'bot') {
+    if (!/^\d{17,20}$/.test(target.channelId ?? '') || !target.token)
+      throw new Error('Reconnect the Discord channel in Guild settings.')
+    const base = `https://discord.com/api/v10/channels/${target.channelId}/messages`
+    return {
+      create: base,
+      message: (id) => `${base}/${id}`,
+      headers: { Authorization: `Bot ${target.token}` },
+      interactive: true,
+    }
+  }
+  if (!WEBHOOK_URL.test(target)) throw new Error('Reconnect the Discord channel in Guild settings.')
+  return {
+    create: `${target}?wait=true`,
+    message: (id) => `${target}/messages/${id}`,
+    headers: {},
+    interactive: false,
+  }
+}
+
+/**
+ * Creates are checkpointed immediately. An ambiguous create must be reconciled, never blindly retried.
+ * `components` (bot targets only) go on the last message; edits replace them, so a cancelled
+ * roster's buttons disappear.
+ */
 export async function deliverMessages(
-  webhook,
+  target,
   messages,
   previousIds,
-  { fetchFn = fetch, checkpoint, mentionIds = [] },
+  { fetchFn = fetch, checkpoint, mentionIds = [], components = [] },
 ) {
-  if (
-    !/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com\/api\/webhooks\/\d{17,20}\/[A-Za-z0-9_-]{20,100}$/.test(
-      webhook,
-    )
-  )
-    throw new Error('Reconnect the Discord channel in Guild settings.')
+  const route = transport(target)
   const ids = [...previousIds]
-  async function request(method, path, body) {
+  async function request(method, url, body) {
     let response
     try {
-      response = await fetchFn(`${webhook}${path}`, {
+      response = await fetchFn(url, {
         method,
         redirect: 'error',
         signal: AbortSignal.timeout(15000),
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...route.headers },
         body: body ? JSON.stringify(body) : undefined,
       })
     } catch {
@@ -180,16 +207,17 @@ export async function deliverMessages(
         parse: [],
         users: ids[index] ? [] : mentionIds.filter((id) => /^\d{17,20}$/.test(id)).slice(0, 100),
       },
+      ...(route.interactive ? { components: index === messages.length - 1 ? components : [] } : {}),
     }
     if (ids[index]) {
       try {
-        await request('PATCH', `/messages/${ids[index]}`, body)
+        await request('PATCH', route.message(ids[index]), body)
         continue
       } catch (error) {
         if (error.status !== 404) throw error
       }
     }
-    const message = await request('POST', '?wait=true', body)
+    const message = await request('POST', route.create, body)
     if (!/^\d{17,20}$/.test(message?.id))
       throw Object.assign(
         new Error('Discord did not return a message identifier. Check the channel before retrying.'),
@@ -207,7 +235,7 @@ export async function deliverMessages(
   }
   while (ids.length > messages.length) {
     try {
-      await request('DELETE', `/messages/${ids.at(-1)}`)
+      await request('DELETE', route.message(ids.at(-1)))
     } catch (error) {
       if (error.status !== 404) throw error
     }

@@ -89,6 +89,34 @@ With `.env.local` present, `npm run build`, `npm run preview`, and `npm run test
 
 The publishable key is public by design. Never put the secret or service-role key in the frontend or in these variables.
 
+5. Deploy the Edge Functions. `raid-dispatch` sends queued Discord posts and reminders, `raid-calendar` serves personal calendar feeds, and `raid-interactions` receives Discord button presses:
+
+   ```sh
+   npx supabase functions deploy raid-dispatch raid-calendar raid-interactions
+   npx supabase secrets set RAID_DISPATCH_SECRET=<long random string>
+   ```
+
+6. Let the scheduler run `raid-dispatch` every five minutes (reminders and retries). In the SQL editor, store its address and the same secret in Vault; until both exist the cron job does nothing:
+
+   ```sql
+   select vault.create_secret('https://<ref>.supabase.co/functions/v1/raid-dispatch', 'raid_dispatch_url');
+   select vault.create_secret('<the RAID_DISPATCH_SECRET value>', 'raid_dispatch_secret');
+   ```
+
+7. Optional: **Confirm / Can't attend buttons in Discord.** Buttons only work on messages a Discord bot posts, so this uses the WhenToRaid Discord application's bot instead of a channel webhook.
+   1. In the Discord developer portal, open the application: copy its **Application ID** and **Public Key**, create a bot token under **Bot**, and set **Interactions Endpoint URL** to `https://<ref>.supabase.co/functions/v1/raid-interactions` (Discord sends a signed test request when you save it, so deploy the function and set the secrets first).
+   2. Set the secrets:
+
+      ```sh
+      npx supabase secrets set DISCORD_APPLICATION_ID=<id> DISCORD_PUBLIC_KEY=<public key> \
+        DISCORD_BOT_TOKEN=<bot token> WHENTORAID_APP_URL=https://<you>.github.io/whentoraid/
+      ```
+
+   3. Invite the bot to the guild's Discord server with the `bot` scope and the **View Channel** and **Send Messages** permissions on the roster channel.
+   4. In WhenToRaid, an officer enters the **Discord server ID** (Guild settings → Raid rules → Discord access) and the **Bot channel ID** (Guild settings → Connections). Rosters posted after that carry Confirm, Can't attend, and View roster buttons. A press is accepted only from a guild member on the current published roster, on the latest version of the post, before the raid starts.
+
+   Delivery stays off until an officer connects a channel and posts a roster; reminders stay off until enabled in Connections.
+
 Hosted security checklist. `supabase/config.toml` covers only the local stack; set these in the dashboard:
 
 - **Discord is the only sign-in.** Turn off email sign-up (or require confirmed emails), phone, anonymous sign-ins, and manual identity linking. Membership trusts the Discord identity on an account. An open email sign-up would let someone pre-register a player's email and have Supabase link that player's Discord account to it.
@@ -122,7 +150,8 @@ Realtime change events are filtered to guild members, except delete events. Thos
 ## Code layout
 
 - `src/lib/`: framework-free logic, all pure functions with tests beside them.
-  - `engine.js`: roster optimizer and conflict checks.
+  - `engine.js`: roster optimizer and conflict checks. `composition-rules.js`: class limits, required utilities, and roster priority.
+  - `raid-series.js`: weekly schedules, exceptions, draft generation, and month entries. `officer-dashboard.js`: upcoming raids and what each needs.
   - `model.js`: state shape and every state change (members, characters, weekly check-ins, plans, settings).
   - `planning.js`: ranked suggestions, the current plan, roster placement, and applying settings.
   - `grid.js`, `time.js`, `intervals.js`: the guild's half-hour grid, timezone conversion, and UTC time ranges.
@@ -180,6 +209,12 @@ Members and characters are stored once. Each week holds only check-ins (availabi
 - Raids can run past midnight: raid hours may end as late as 6 am the next day.
 - Installable (web app manifest and icons) and usable offline after the first visit.
 - Browser-local persistence, .txt roster download, and "Copy for Discord": Markdown grouped by role, with Discord timestamps so each reader sees their local time. Player-entered names are escaped so they cannot format the message or ping @everyone.
+- Officer dashboard on Home: this week's and upcoming raids with what each still needs (not planned, unpublished, draft changes, open slots, unavailable or tentative players, rule warnings, players not checked in).
+- Weekly schedules per raid profile (Guild settings → Raid rules → Weekly schedule): guild-local clock times that hold across clock changes, one-week cancellations or moves, and "this and following" changes that never move a published roster. "Create drafts for upcoming dates" adds empty drafts only; nothing is published or sent. A month calendar on Home shows raids (players see published rosters only).
+- Optional roster rules per raid: class limits, required utilities (for example "Decurse" from any Mage or Druid), and the tie-breaker (sat out recently, mains, or preferred times). The planner warns when a roster breaks them.
+- Availability can be marked Available, Preferred, or Tentative. Tentative players are never counted as firm: suggestions prefer firm players and rostered tentative players are flagged for confirmation. "Away dates" mark a date range away across weeks without erasing the usual times underneath.
+- Responses refresh every minute while the Responses tab is open and show when they were last checked. Online guilds can copy a link to a published roster (`?guild=<id>#/published/<week>/<raid>`), which survives signing in.
+- The planner heading shows the full date with guild time, plus the viewer's own time when it differs. Officers editing as another player see a banner on every page with "Return to" themselves.
 
 ## Prototype boundaries
 
@@ -190,11 +225,11 @@ Online mode (Supabase) covers the following:
 - Officer and player permissions enforced by the database.
 - Invitations by Discord ID.
 
-Officers are marked in the app; they are not yet synced from Discord server roles. The Discord server ID and officer role ID fields are notes for that future step, which needs a server function to call Discord's API with the `guilds.members.read` scope. Online edits save as they happen. If two viewers edit from the same revision, the second save is rejected and their view reloads; they must review and reapply their change. Online guilds need a connection: offline, the page loads but changes are not saved. Blizzard import and notifications are not implemented. In browser-only mode, stored Discord IDs are used only for @mentions. Do not enter secrets anywhere in the app.
+Officers are marked in the app; they are not yet synced from Discord server roles. The officer role ID field is a note for that future step, which needs a server function to call Discord's API with the `guilds.members.read` scope; the Discord server ID is used to accept roster button presses. Online edits save as they happen. If two viewers edit from the same revision, the second save is rejected and their view reloads; they must review and reapply their change. Online guilds need a connection: offline, the page loads but changes are not saved. Online guilds can post rosters and reminders to Discord (see [Host it](#host-it)); Blizzard import is not implemented. In browser-only mode, stored Discord IDs are used only for @mentions. Do not enter secrets anywhere in the app.
 
 The grid is shown in the guild's timezone, within its raid hours (the demo guild uses America/Los_Angeles, noon–midnight). "Act as" stands in for sign-in: anyone using this browser can act as any player. Availability is stored in UTC. Grid columns are always the guild's days; in "show my time" mode only the labels change. There is no multi-night roster optimization. On touch screens, dragging a finger across the availability grid paints cells (swipe the time labels or outside the grid to scroll). Roster cards are moved by pressing and holding, then dragging; the page scrolls when the card nears the top or bottom edge. Touch behavior is verified with Chromium touch emulation, not yet on physical iOS or Android devices.
 
-Role slots, backup depth, bench fairness, and main preference are the optimization criteria. Bench fairness counts how many of the last 4 weeks a player was free for the saved plan but left off it; past sessions are assumed to have run for the current raid duration. It does not yet optimize raid buffs, encounter mechanics, class limits, resistances, player skill, or gear. When bench history is also equal, ties still favor players earlier in the member list. Class diversity is shown for officer review. A character's stored role can be manually overridden, which intentionally triggers a warning.
+Role slots, required utilities, firm (not tentative) availability, backup depth, and the raid's roster priority (bench fairness by default, or mains, or preferred times) are the optimization criteria; optional class limits are never exceeded by suggestions. Bench fairness counts how many of the last 4 weeks a player was free for the saved plan but left off it; past sessions are assumed to have run for the current raid duration. It does not optimize encounter mechanics, resistances, player skill, or gear. When bench history is also equal, ties still favor players earlier in the member list. Class diversity is shown for officer review. A character's stored role can be manually overridden, which intentionally triggers a warning.
 
 ## Production implementation
 

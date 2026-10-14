@@ -3,12 +3,16 @@
 // RAID_DISPATCH_SECRET, also queues due reminders and drains every guild.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { deliverMessages, reminderMessages, rosterMessages } from '../_shared/raid-service-core.js'
+import { rosterComponents } from '../_shared/discord-interactions.js'
 
 const URL_ = Deno.env.get('SUPABASE_URL')
 const admin = createClient(URL_, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'), {
   auth: { persistSession: false },
 })
 const SCHEDULER_SECRET = Deno.env.get('RAID_DISPATCH_SECRET') ?? ''
+// Bot channels (with response buttons) need the application's bot token and the app's public address.
+const BOT_TOKEN = Deno.env.get('DISCORD_BOT_TOKEN') ?? ''
+const APP_URL = Deno.env.get('WHENTORAID_APP_URL') ?? ''
 /** Bounded work per call keeps each run well inside the function time limit. */
 const MAX_DELIVERIES = 10
 const CORS = {
@@ -59,6 +63,14 @@ async function messagesFor(job) {
   return { messages, mentionIds: payload.recipients.map((r) => r.discordId).filter(Boolean) }
 }
 
+/** A bot channel when the guild chose one, otherwise its webhook. */
+function targetFor(job) {
+  if (!job.channel_id) return job.webhook_url
+  // Without the app address, roster posts would lose their buttons silently, so refuse instead.
+  if (!BOT_TOKEN || !APP_URL) throw new Error('The WhenToRaid Discord bot is not configured on this server.')
+  return { type: 'bot', channelId: job.channel_id, token: BOT_TOKEN }
+}
+
 async function finish(job, error = null) {
   await rpc('finish_discord_delivery', {
     p_id: job.id,
@@ -76,8 +88,9 @@ async function deliver(job) {
   try {
     plan = await messagesFor(job)
     if (plan) {
-      await deliverMessages(job.webhook_url, plan.messages, job.message_ids ?? [], {
+      await deliverMessages(targetFor(job), plan.messages, job.message_ids ?? [], {
         mentionIds: plan.mentionIds,
+        components: job.channel_id && job.kind === 'roster' ? rosterComponents(job, APP_URL) : [],
         checkpoint: (ids) =>
           rpc('checkpoint_discord_delivery', { p_id: job.id, p_lease: job.lease_token, p_message_ids: ids }),
       })

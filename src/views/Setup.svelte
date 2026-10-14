@@ -58,6 +58,7 @@
   function loadDemo() {
     app.view = 'planner'
     app.data = createDemoState()
+    showToast('Demo guild loaded. It is saved only in this browser; start over from Guild settings.')
   }
 
   function restore(state) {
@@ -82,6 +83,10 @@
     <p class="subtitle">
       Takes a minute. You can add the rest of your guild next, and change any of this later in Guild settings.
     </p>
+    <div class="demo-callout">
+      <span>Want to look around first? The demo guild has 24 sample players and a year of raids.</span>
+      <button onclick={loadDemo}>Try the demo</button>
+    </div>
 
     {#if app.unreadable}
       <section class="panel spaced-top recovery" role="alert">
@@ -183,3 +188,17 @@
     </section>
   </div>
 </main>
+
+<style>
+  .demo-callout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px dashed var(--gold);
+    border-radius: 6px;
+  }
+</style>

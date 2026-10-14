@@ -8,6 +8,8 @@
   import RestoreButton from '../components/RestoreButton.svelte'
   import RaidSelector from '../components/RaidSelector.svelte'
   import CompositionFields from '../components/CompositionFields.svelte'
+  import RaidRulesEditor from '../components/RaidRulesEditor.svelte'
+  import RaidScheduleEditor from '../components/RaidScheduleEditor.svelte'
   import SectionTabs from '../components/SectionTabs.svelte'
   import { getRaid } from '../lib/raids.js'
   import { app } from '../lib/app.svelte.js'
@@ -311,8 +313,9 @@
           <details class="settings-section">
             <summary><h2>Discord access</h2></summary>
             <p>
-              These IDs are notes for future Discord role syncing. Online access currently uses the Discord ID
-              saved on each guild member and the officer setting in this app.
+              The server ID lets Confirm and Can’t attend buttons on bot-posted rosters reach this guild. Role
+              IDs are notes for future role syncing. Online access uses the Discord ID saved on each guild
+              member and the officer setting in this app.
             </p>
             <div class="settings-grid">
               <label class="field">
@@ -349,6 +352,8 @@
         </div>
       </form>
     {/key}
+    <RaidRulesEditor />
+    <RaidScheduleEditor />
   </div>
 
   <div

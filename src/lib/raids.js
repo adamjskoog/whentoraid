@@ -1,4 +1,6 @@
 import { DURATION_OPTIONS, MAX_RAID_SIZE } from './constants.js'
+import { validateCompositionRules } from './composition-rules.js'
+import { validateRaidSeries } from './raid-series.js'
 
 export const DEFAULT_RAID_ID = 'raid-20'
 
@@ -51,5 +53,8 @@ export function validateRaid(raid) {
   if (raid.targets.reduce((sum, n) => sum + n, 0) !== raid.size)
     return `The composition must total ${raid.size} players.`
   if (!DURATION_OPTIONS.includes(raid.durationSlots)) return 'Choose a valid raid duration.'
-  return null
+  return (
+    validateCompositionRules(raid.rules) ??
+    (raid.series === undefined ? null : validateRaidSeries(raid.series))
+  )
 }

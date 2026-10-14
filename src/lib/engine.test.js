@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { backups, compose, conflicts, isAvailable } from './engine.js'
+import { availabilityState, backups, compose, conflicts, isAvailable } from './engine.js'
 
 const SESSION = { start: 0, end: 4 }
 const character = (id, role, main = true, offered = true) => ({ id, role, main, offered })
@@ -152,5 +152,85 @@ describe('conflicts', () => {
     expect(conflicts({ memberId: 'nobody', characterId: 'x', role: 'Tank' }, [], SESSION)).toEqual([
       'Character missing',
     ])
+  })
+})
+
+describe('composition rules and availability preferences', () => {
+  const typed = (id, className, spec = 'Frost', main = true) => ({
+    ...character(id, 'DPS', main),
+    class: className,
+    spec,
+  })
+  const utility = { id: 'control', name: 'Encounter control', eligible: [{ class: 'Mage', spec: 'Frost' }] }
+
+  test('reserves a class allowance for a scarce role instead of filling it with damage', () => {
+    const players = [
+      person('damage', [typed('d', 'Druid')]),
+      person('tank', [{ ...typed('t', 'Druid'), role: 'Tank' }]),
+      person('other', [typed('o', 'Mage')]),
+    ]
+    const result = compose(players, SESSION, [1, 0, 1], { rules: { classLimits: { Druid: 1 } } })
+    expect(result.team.map((entry) => entry.memberId)).toEqual(['tank', 'other'])
+  })
+
+  test('chooses a qualifying alt over a main to cover required utility', () => {
+    const players = [person('flex', [typed('main', 'Mage', 'Fire'), typed('alt', 'Mage', 'Frost', false)])]
+    const result = compose(players, SESSION, [0, 0, 1], { rules: { requiredUtilities: [utility] } })
+    expect(result.team[0].characterId).toBe('alt')
+    expect(result.issues).toEqual([])
+    expect(result.utilityCount).toBe(1)
+  })
+
+  test('reports an unmet requirement and a locked class excess without discarding locks', () => {
+    const players = [person('a', [typed('a', 'Mage', 'Fire')]), person('b', [typed('b', 'Mage', 'Fire')])]
+    const locked = players.map((p) => ({ memberId: p.id, characterId: p.id, role: 'DPS' }))
+    const result = compose(players, SESSION, [0, 0, 2], {
+      locked,
+      rules: { classLimits: { Mage: 1 }, requiredUtilities: [utility] },
+    })
+    expect(result.team).toEqual(locked)
+    expect(result.issues.map((issue) => issue.code)).toEqual(['class-limit', 'missing-utility'])
+  })
+
+  test('makes mains and preferred availability configurable while fairness remains the default', () => {
+    const rested = { ...person('rested', [typed('a', 'Mage', 'Frost', false)]), priority: 3 }
+    const main = person('main', [typed('b', 'Mage')])
+    const preferred = {
+      ...person('preferred', [typed('c', 'Mage', 'Frost', false)]),
+      preferredRanges: [SESSION],
+    }
+    const players = [rested, main, preferred]
+    expect(compose(players, SESSION, [0, 0, 1]).team[0].memberId).toBe('rested')
+    expect(compose(players, SESSION, [0, 0, 1], { rules: { priority: 'mains' } }).team[0].memberId).toBe(
+      'main',
+    )
+    expect(compose(players, SESSION, [0, 0, 1], { rules: { priority: 'preferred' } }).team[0].memberId).toBe(
+      'preferred',
+    )
+  })
+
+  test('prefers firm players to tentative players and reports a conditional roster', () => {
+    const tentative = {
+      ...person('tentative', [typed('a', 'Mage')], []),
+      tentativeRanges: [SESSION],
+      priority: 99,
+    }
+    const firm = person('firm', [typed('b', 'Mage', 'Frost', false)])
+    expect(compose([tentative, firm], SESSION, [0, 0, 1]).team[0].memberId).toBe('firm')
+    expect(compose([tentative, firm], SESSION, [0, 0, 2])).toMatchObject({ firm: 1, tentative: 1 })
+    expect(
+      conflicts({ memberId: 'tentative', characterId: 'a', role: 'DPS' }, [tentative], SESSION),
+    ).toContain('Tentative availability — confirm before publishing')
+  })
+
+  test('combines firm and tentative intervals but rejects commitments, gaps and absent check-ins', () => {
+    const player = { ...person('a', [], [{ start: 0, end: 2 }]), tentativeRanges: [{ start: 2, end: 4 }] }
+    expect(availabilityState(player, SESSION)).toBe('tentative')
+    expect(isAvailable(player, SESSION)).toBe(true)
+    expect(availabilityState({ ...player, checkedIn: false }, SESSION)).toBe('unavailable')
+    expect(availabilityState({ ...player, commitments: [{ start: 3, end: 5 }] }, SESSION)).toBe('unavailable')
+    expect(availabilityState({ ...player, tentativeRanges: [{ start: 3, end: 4 }] }, SESSION)).toBe(
+      'unavailable',
+    )
   })
 })

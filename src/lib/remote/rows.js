@@ -82,6 +82,7 @@ export function stateToRows(state, guildId) {
         ranges: checkin.ranges,
         declined: checkin.declined,
         raid_preferences: checkin.raids ?? {},
+        availability: availabilityColumn(checkin),
       })),
     ),
     plans: weeks.flatMap(([week, data]) =>
@@ -98,6 +99,29 @@ export function stateToRows(state, guildId) {
       })),
     ),
   }
+}
+
+/** Check-in fields stored in the `availability` column; only fields the check-in has are written. */
+const AVAILABILITY_FIELDS = {
+  preferred: 'preferredRanges',
+  tentative: 'tentativeRanges',
+  absent: 'absentDates',
+}
+
+function availabilityColumn(checkin) {
+  return Object.fromEntries(
+    Object.entries(AVAILABILITY_FIELDS)
+      .filter(([, field]) => checkin[field] !== undefined)
+      .map(([column, field]) => [column, checkin[field]]),
+  )
+}
+
+function availabilityFields(column) {
+  return Object.fromEntries(
+    Object.entries(AVAILABILITY_FIELDS)
+      .filter(([key]) => column?.[key] !== undefined)
+      .map(([key, field]) => [field, column[key]]),
+  )
 }
 
 const byPosition = (a, b) => a.position - b.position
@@ -117,6 +141,7 @@ export function rowsToState(rows, viewer) {
       ranges: row.ranges,
       declined: row.declined,
       ...(Object.keys(row.raid_preferences ?? {}).length ? { raids: row.raid_preferences } : {}),
+      ...availabilityFields(row.availability),
     }
   }
   for (const row of rows.plans) {

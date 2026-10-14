@@ -1,5 +1,4 @@
 <script>
-  import { onMount } from 'svelte'
   import SectionTabs from '../components/SectionTabs.svelte'
   import AddPlayerDialog from '../components/AddPlayerDialog.svelte'
   import AttendancePanel from '../components/AttendancePanel.svelte'
@@ -32,8 +31,8 @@
   import { ROLES } from '../lib/constants.js'
   import { downloadText } from '../lib/download.js'
   import { backups, conflicts, isAvailable } from '../lib/engine.js'
-  import { displayZone } from '../lib/display.svelte.js'
-  import { clampStartSlot, formatSessionIn, slotWindow } from '../lib/grid.js'
+  import { displayZone, viewerZone } from '../lib/display.svelte.js'
+  import { clampStartSlot, formatSessionHeading, formatSessionIn, slotWindow } from '../lib/grid.js'
   import {
     characterById,
     memberById,
@@ -42,7 +41,7 @@
     setPlan,
     tracksAttendance,
   } from '../lib/model.js'
-  import { canManage } from '../lib/remote/sync.svelte.js'
+  import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import {
     benchMember,
     formatBackups,
@@ -55,7 +54,15 @@
     topDistinctDays,
   } from '../lib/planning.js'
   import { rosterDiscord, rosterMentions, rosterText, splitForDiscord } from '../lib/roster-export.js'
-  import { discordChannel, loadDiscordChannel, postKey, rememberPost } from '../lib/discord-channel.svelte.js'
+  import {
+    discordChannel,
+    hasDiscordChannel,
+    loadDiscordChannel,
+    postKey,
+    rememberPost,
+  } from '../lib/discord-channel.svelte.js'
+  import { compositionIssues } from '../lib/composition-rules.js'
+  import { publishedRosterUrl } from '../lib/route.js'
   import { deleteFromWebhook, postToWebhook } from '../lib/discord-webhook.js'
   import { showToast, offerUndo } from '../lib/toast.svelte.js'
   import { loadRaidResponses, responseKey } from '../lib/raid-responses.svelte.js'
@@ -77,11 +84,11 @@
   const section = $derived(
     !canManage() || (viewPublished && activeSection === 'schedule') ? 'roster' : activeSection,
   )
-  onMount(() => {
-    if (app.plannerIntent === 'published') {
-      showPublished = true
-      activeSection = 'roster'
-    }
+  // A personal assignment or shared roster link opens the published roster, even if already here.
+  $effect(() => {
+    if (app.plannerIntent !== 'published') return
+    showPublished = true
+    activeSection = 'roster'
     app.plannerIntent = null
   })
   const tabs = $derived([
@@ -133,7 +140,8 @@
   )
 
   /** Officers see how players answered the published roster; republishing asks everyone again. */
-  let responses = $state({ key: null, byMember: {}, error: '' })
+  let responses = $state({ key: null, byMember: {}, error: '', checkedAt: null })
+  let checkingResponses = $state(false)
   /** Bumped to fetch again: responses are not part of live guild sync. */
   let responsesTick = $state(0)
   const responsesKey = $derived(published ? responseKey(weekIso, app.data.currentRaidId, published) : null)
@@ -142,13 +150,33 @@
     void responsesTick
     if (!key || !canManage()) return
     const raidId = app.data.currentRaidId
+    checkingResponses = true
     loadRaidResponses(weekIso, raidId, published)
       .then((byMember) => {
-        if (key === responsesKey) responses = { key, byMember, error: '' }
+        if (key === responsesKey) responses = { key, byMember, error: '', checkedAt: Date.now() }
       })
       .catch((error) => {
-        if (key === responsesKey) responses = { key, byMember: {}, error: error.message }
+        // Keep the last answers on screen when a background refresh fails.
+        if (key === responsesKey)
+          responses = {
+            ...responses,
+            key,
+            byMember: responses.key === key ? responses.byMember : {},
+            error: error.message,
+          }
       })
+      .finally(() => {
+        if (key === responsesKey) checkingResponses = false
+      })
+  })
+  /** Check again every minute while officers watch the Responses tab and the page is visible. */
+  const RESPONSES_REFRESH_MS = 60_000
+  $effect(() => {
+    if (section !== 'responses' || !responsesKey || !canManage()) return
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') responsesTick += 1
+    }, RESPONSES_REFRESH_MS)
+    return () => clearInterval(timer)
   })
   const inDraft = (memberId) => context.plan.team.some((entry) => entry.memberId === memberId)
 
@@ -215,7 +243,7 @@
     showIssues = false
     offerUndo('Roster published. Draft edits will stay separate.', previous)
     // A roster already in Discord follows what was just published.
-    if (discordChannel.webhookUrl && postedIds.length) void followPublication(postToDiscord)
+    if (hasDiscordChannel() && postedIds.length) void followPublication(postToDiscord)
   }
 
   function withdraw() {
@@ -224,7 +252,7 @@
     app.data = withdrawPlan(app.data)
     showPublished = false
     offerUndo('Published roster withdrawn. Your draft is kept.', previous)
-    if (discordChannel.webhookUrl && postedIds.length) void followPublication(withdrawDiscordPost)
+    if (hasDiscordChannel() && postedIds.length) void followPublication(withdrawDiscordPost)
   }
 
   const totalSlots = $derived(settings.targets.reduce((sum, n) => sum + n, 0))
@@ -238,6 +266,14 @@
   const topDays = $derived(topDistinctDays(context.suggestions, 3))
   const classCount = $derived(
     new Set(plan.team.map((e) => characterById(app.data, e.characterId)?.class)).size,
+  )
+  /** The raid's optional class limits and required utilities, as warnings officers may accept. */
+  const ruleIssues = $derived(
+    compositionIssues(
+      plan.team,
+      players.flatMap((p) => p.characters),
+      settings.rules,
+    ),
   )
   const zone = $derived(displayZone(guild))
   const sessionLabel = $derived(formatSessionIn(plan, zone))
@@ -265,13 +301,13 @@
 
   function rebuild() {
     if (officersOnly()) return
-    savePlan(plan.start, rebuildTeam(players, plan, settings.targets, plan.team, plan.locked))
+    savePlan(plan.start, rebuildTeam(players, plan, settings.targets, plan.team, plan.locked, settings.rules))
     showToast(plan.locked.length ? 'Roster rebuilt around locked players' : 'Roster rebuilt for this session')
   }
 
   function chooseSuggestion(suggestion) {
     const team = plan.locked.length
-      ? rebuildTeam(players, suggestion, settings.targets, plan.team, plan.locked)
+      ? rebuildTeam(players, suggestion, settings.targets, plan.team, plan.locked, settings.rules)
       : suggestion.team
     savePlan(suggestion.start, team)
   }
@@ -285,7 +321,14 @@
     if (officersOnly() || viewPublished) return
     const startSlot = clampStartSlot(slot, settings.durationSlots, guild)
     const window = slotWindow(weekIso, day, startSlot, settings.durationSlots, guild)
-    const { team, replaced } = retimeTeam(players, window, settings.targets, plan.team, plan.locked)
+    const { team, replaced } = retimeTeam(
+      players,
+      window,
+      settings.targets,
+      plan.team,
+      plan.locked,
+      settings.rules,
+    )
     savePlan(window.start, team)
     if (replaced) {
       showToast(
@@ -348,7 +391,7 @@
     ensureSaved()
     app.data = setCancelled(app.data, weekIso, cancelled)
     showToast(cancelled ? 'Raid marked as cancelled' : 'Raid marked as held')
-    if (published && discordChannel.webhookUrl && postedIds.length) void followPublication(postToDiscord)
+    if (published && hasDiscordChannel() && postedIds.length) void followPublication(postToDiscord)
   }
 
   /** Messages to copy by hand when the clipboard API is unavailable (e.g. not a secure context). */
@@ -391,7 +434,7 @@
   let posting = $state(false)
 
   $effect(() => {
-    if (canManage() && usesServerDelivery() && discordChannel.webhookUrl)
+    if (canManage() && usesServerDelivery() && hasDiscordChannel())
       void watchDelivery(weekIso, app.data.currentRaidId)
   })
   /** Only the raid on screen: a slow reload for another raid never shows here. */
@@ -491,6 +534,17 @@
     }
   }
 
+  /** A link to this published roster for guild members; it opens the guild after signing in. */
+  async function copyRosterLink() {
+    const url = publishedRosterUrl(location, remote.guildId, weekIso, app.data.currentRaidId)
+    try {
+      await navigator.clipboard.writeText(url)
+      showToast('Roster link copied. Guild members can open it after signing in.')
+    } catch {
+      manualCopyMessages = [url]
+    }
+  }
+
   function exportRoster() {
     downloadText(`whentoraid-${settings.id}-${weekIso}.txt`, rosterText(app.data, plan, players))
   }
@@ -506,7 +560,9 @@
   <PageTitle
     eyebrow={viewPublished ? 'PUBLISHED RAID' : 'RAID PLANNER'}
     title={settings.name}
-    subtitle={viewPublished && !published ? 'Your officers have not published this raid yet.' : sessionLabel}
+    subtitle={viewPublished && !published
+      ? 'Your officers have not published this raid yet.'
+      : formatSessionHeading(plan, guild.timezone, viewerZone)}
   />
 
   <div class="planning-context"><RaidSelector /><WeekBar /></div>
@@ -547,20 +603,22 @@
         {viewPublished
           ? 'Viewing the published roster. Player confirmations are separate.'
           : 'Editing the draft. Changes save automatically.'}
-        {#if canManage() && discordChannel.webhookUrl && postedIds.length}Posted to Discord; publishing draft
+        {#if canManage() && hasDiscordChannel() && postedIds.length}Posted to Discord; publishing draft
           changes updates the post.
-        {:else if canManage() && discordChannel.loaded && !discordChannel.webhookUrl}Set a Discord channel in
-          Guild settings to post rosters there directly.{/if}
+        {:else if canManage() && discordChannel.loaded && !hasDiscordChannel()}Set a Discord channel in Guild
+          settings to post rosters there directly.{/if}
       </p>
+      {#if published && remote.guildId}
+        <div class="buttons"><button onclick={copyRosterLink}>Copy roster link</button></div>
+      {/if}
       {#if canManage()}
         <div class="buttons">
           {#if published}<button onclick={withdraw}>Withdraw published roster</button>{/if}
-          {#if discordChannel.webhookUrl && published}<button disabled={posting} onclick={postToDiscord}
+          {#if hasDiscordChannel() && published}<button disabled={posting} onclick={postToDiscord}
               >{postedIds.length ? 'Update Discord post' : 'Post to Discord'}</button
             >{/if}
-          {#if discordChannel.webhookUrl && postedIds.length}<button
-              onclick={deleteDiscordPost}
-              disabled={posting}>Delete Discord post</button
+          {#if hasDiscordChannel() && postedIds.length}<button onclick={deleteDiscordPost} disabled={posting}
+              >Delete Discord post</button
             >{/if}
         </div>
         {#if plan.team.length}<label class="checkbox-row"
@@ -760,6 +818,11 @@
               onclick={undoRoster}>Undo roster change</button
             >{/if}
         </div>{/if}
+      {#if ruleIssues.length}
+        <ul class="rule-issues warning" role="status" aria-label="Composition rules">
+          {#each ruleIssues as issue, i (i)}<li>{issue.message}</li>{/each}
+        </ul>
+      {/if}
       <RosterBoard
         team={plan.team}
         {players}
@@ -804,6 +867,9 @@
             team={published.team}
             byMember={responses.byMember}
             error={responses.error}
+            checkedAt={responses.checkedAt}
+            checking={checkingResponses}
+            {zone}
             canReplace={inDraft}
             onreplace={replaceMember}
             onrefresh={() => (responsesTick += 1)}
@@ -898,5 +964,9 @@
   }
   .publication-review li button {
     margin: 0.25rem;
+  }
+  .rule-issues {
+    margin: 0.75rem 0;
+    padding-left: 1.25rem;
   }
 </style>

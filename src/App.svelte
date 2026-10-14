@@ -15,6 +15,7 @@
   import { captureInvite, invite, loadInvite } from './lib/remote/invite.svelte.js'
   import { sameGuild, saveState, watchOtherTabs } from './lib/storage.js'
   import { showToast } from './lib/toast.svelte.js'
+  import EditingAsBanner from './components/EditingAsBanner.svelte'
   import JoinGuildDialog from './components/JoinGuildDialog.svelte'
   import Modal from './components/Modal.svelte'
   import OnlineAccount from './components/OnlineAccount.svelte'
@@ -128,6 +129,7 @@
 
   function applyRoute(route) {
     lastView = route.view
+    if (route.published) app.plannerIntent = 'published'
     app.view = route.view
     if (app.data && route.week) app.data = setCurrentWeek(app.data, route.week)
     if (app.data) app.data = setCurrentRaid(app.data, route.raid ?? DEFAULT_RAID_ID)
@@ -189,6 +191,7 @@
         </section>
       {/if}
       <div inert={remote.hasUnsavedDraft}>
+        <EditingAsBanner />
         {#if app.view === 'home'}
           <Home />
         {:else if app.view === 'availability'}

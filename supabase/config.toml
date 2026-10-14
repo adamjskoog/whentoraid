@@ -439,3 +439,8 @@ entrypoint = "./functions/raid-calendar/index.js"
 [functions.raid-dispatch]
 verify_jwt = false
 entrypoint = "./functions/raid-dispatch/index.js"
+
+# Discord calls this with a signed request, not a Supabase session; the function verifies the signature.
+[functions.raid-interactions]
+verify_jwt = false
+entrypoint = "./functions/raid-interactions/index.js"
