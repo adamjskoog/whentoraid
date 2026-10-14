@@ -123,6 +123,24 @@ describe('listing the connected server’s channels', () => {
     expect(fetchFn.mock.calls[0][1].headers.Authorization).toBe('Bot token')
   })
 
+  test('a rejected bot token says the token needs resetting, and is not mistaken for a wrong channel', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ message: '401: Unauthorized' }, 401))
+    await expect(listChannels({ serverId: SERVER, botToken: 'stale', fetchFn })).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringMatching(/reset the token .* DISCORD_BOT_TOKEN/),
+    })
+    await expect(
+      checkChannelInServer({ channelId: '800000000000000001', serverId: SERVER, botToken: 'stale', fetchFn }),
+    ).rejects.toThrow(/DISCORD_BOT_TOKEN/)
+  })
+
+  test('other Discord failures do not reveal status codes', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({}, 500))
+    await expect(listChannels({ serverId: SERVER, botToken: 'token', fetchFn })).rejects.toThrow(
+      'Discord could not be reached. Try again shortly.',
+    )
+  })
+
   test('a bot removed from the server asks to add it again', async () => {
     const fetchFn = discordApi({ 'GET /users/@me': { id: BOT } })
     await expect(listChannels({ serverId: SERVER, botToken: 'token', fetchFn })).rejects.toThrow(

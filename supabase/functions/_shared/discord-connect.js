@@ -86,9 +86,15 @@ export async function exchangeInstallCode({
 /** GET a bot API path. A 403 or 404 means the bot cannot see it, usually because it was removed. */
 export async function discordGet(path, botToken, fetchFn = fetch) {
   const response = await fetchFn(`${API}${path}`, { headers: { Authorization: `Bot ${botToken}` } })
+  // A rejected token is a setup problem waiting will not fix: the site's bot token was reset or mistyped.
+  if (response.status === 401)
+    throw new ConnectError(
+      'Discord rejected the WhenToRaid bot token. Whoever runs this site needs to reset the token in the Discord developer portal and save it as DISCORD_BOT_TOKEN.',
+      503,
+    )
   if (response.status === 403 || response.status === 404)
     throw new ConnectError('The WhenToRaid bot is no longer in that Discord server. Add it again.', 409)
-  if (!response.ok) throw new ConnectError(`Discord returned ${response.status}. Try again shortly.`, 502)
+  if (!response.ok) throw new ConnectError('Discord could not be reached. Try again shortly.', 502)
   return response.json()
 }
 
@@ -149,7 +155,11 @@ export async function listChannels({ serverId, botToken, fetchFn = fetch }) {
 /** Refuse a bot channel outside the guild's connected server, before the bot posts there. */
 export async function checkChannelInServer({ channelId, serverId, botToken, fetchFn = fetch }) {
   if (!serverId) throw new Error('Add WhenToRaid to your Discord server in Guild settings → Connections.')
-  const channel = await discordGet(`/channels/${channelId}`, botToken, fetchFn).catch(() => null)
+  // A channel the bot cannot see counts as outside the server; a bad token or outage is reported as is.
+  const channel = await discordGet(`/channels/${channelId}`, botToken, fetchFn).catch((error) => {
+    if (error.status === 409) return null
+    throw error
+  })
   if (channel?.guild_id !== serverId)
     throw new Error(
       'The bot channel is not in your connected Discord server. Choose it again in Guild settings.',
