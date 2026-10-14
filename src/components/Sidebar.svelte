@@ -109,6 +109,9 @@
           <div class="acting-as">{me?.name ?? 'Signed in'}<small>Player</small></div>
         {/if}
       </div>
+      <nav class="legal-links" aria-label="Legal">
+        <a href="./privacy.html">Privacy</a> · <a href="./terms.html">Terms</a>
+      </nav>
     </div>
   </div>
 </aside>

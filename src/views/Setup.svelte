@@ -186,6 +186,9 @@
       <p>Restore a guild downloaded from Guild settings in this or another browser.</p>
       <RestoreButton onrestore={restore} />
     </section>
+    <nav class="legal-links" aria-label="Legal">
+      <a href="./privacy.html">Privacy Policy</a> · <a href="./terms.html">Terms of Service</a>
+    </nav>
   </div>
 </main>
 

@@ -376,6 +376,14 @@ fieldset.plain {
   color: var(--muted);
   font-size: 11px;
 }
+.legal-links {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.legal-links a {
+  color: inherit;
+}
 .live-dot {
   display: inline-block;
   width: 6px;
