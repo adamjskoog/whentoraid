@@ -3,6 +3,7 @@
   import DiscordChannelSettings from '../components/DiscordChannelSettings.svelte'
   import ReminderSettings from '../components/ReminderSettings.svelte'
   import { discordChannel } from '../lib/discord-channel.svelte.js'
+  import { hasDiscordReturn } from '../lib/discord-connect.js'
   import OnlineAccount from '../components/OnlineAccount.svelte'
   import PageTitle from '../components/PageTitle.svelte'
   import RestoreButton from '../components/RestoreButton.svelte'
@@ -42,7 +43,8 @@
     { id: 'connections', label: 'Connections' },
     { id: 'backups', label: 'Backups' },
   ]
-  let section = $state('rules')
+  // Coming back from adding the bot on Discord: Connections finishes the connection.
+  let section = $state(hasDiscordReturn() ? 'connections' : 'rules')
   let rulesPanel
 
   let hasDeadline = $state(app.data.settings.checkinDeadline !== null)
@@ -57,7 +59,13 @@
   let current = $state('')
   const dirty = $derived(current !== loaded)
 
-  const formValues = () => (form ? JSON.stringify([...new FormData(form)]) : '')
+  // Online, the server ID is read-only and set by connecting Discord, so it is never an unsaved edit.
+  const formValues = () =>
+    form
+      ? JSON.stringify(
+          [...new FormData(form)].filter(([name]) => !(remote.guildId && name === 'discordServerId')),
+        )
+      : ''
 
   // Take the loaded values once the form is bound, and again whenever it is rebuilt: another raid,
   // or edits discarded.
@@ -325,6 +333,7 @@
                   inputmode="numeric"
                   pattern="[0-9]*"
                   placeholder="Your Discord server ID"
+                  readonly={Boolean(remote.guildId)}
                   value={guild.discordServerId}
                 />
               </label>
@@ -338,6 +347,11 @@
                 />
               </label>
             </div>
+            {#if remote.guildId}
+              <p class="note">
+                The server ID is filled in when you add WhenToRaid to Discord under Connections.
+              </p>
+            {/if}
             <p class="note">Changing these IDs does not change who can access this guild.</p>
           </details>
         </fieldset>

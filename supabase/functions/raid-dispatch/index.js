@@ -4,6 +4,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { deliverMessages, reminderMessages, rosterMessages } from '../_shared/raid-service-core.js'
 import { rosterComponents } from '../_shared/discord-interactions.js'
+import { checkChannelInServer } from '../_shared/discord-connect.js'
+import { isGuildOfficer } from '../_shared/officer.js'
 
 const URL_ = Deno.env.get('SUPABASE_URL')
 const admin = createClient(URL_, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'), {
@@ -36,17 +38,6 @@ function timingSafeEqual(a, b) {
   return diff === 0
 }
 
-async function isOfficer(request, guildId) {
-  const authorization = request.headers.get('Authorization') ?? ''
-  if (!authorization.startsWith('Bearer ')) return false
-  const asUser = createClient(URL_, Deno.env.get('SUPABASE_ANON_KEY'), {
-    auth: { persistSession: false },
-    global: { headers: { Authorization: authorization } },
-  })
-  const { data, error } = await asUser.rpc('is_guild_officer', { g: guildId })
-  return !error && data === true
-}
-
 /** What to send for one claimed job, or null when the job no longer needs a message. */
 async function messagesFor(job) {
   if (job.kind === 'roster') {
@@ -63,11 +54,28 @@ async function messagesFor(job) {
   return { messages, mentionIds: payload.recipients.map((r) => r.discordId).filter(Boolean) }
 }
 
-/** A bot channel when the guild chose one, otherwise its webhook. */
-function targetFor(job) {
+/** Channels confirmed to be in their guild's connected server during this request (cleared per request). */
+const checkedChannels = new Set()
+
+/**
+ * A bot channel when the guild chose one, otherwise its webhook. The bot only posts in the server
+ * the guild connected through Discord, so a typed channel id cannot reach another server.
+ */
+async function targetFor(job) {
   if (!job.channel_id) return job.webhook_url
   // Without the app address, roster posts would lose their buttons silently, so refuse instead.
   if (!BOT_TOKEN || !APP_URL) throw new Error('The WhenToRaid Discord bot is not configured on this server.')
+  const key = `${job.guild_id}/${job.channel_id}`
+  if (!checkedChannels.has(key)) {
+    const { data, error } = await admin
+      .from('guild_discord_servers')
+      .select('server_id')
+      .eq('guild_id', job.guild_id)
+      .maybeSingle()
+    if (error) throw new Error(`guild_discord_servers: ${error.message}`)
+    await checkChannelInServer({ channelId: job.channel_id, serverId: data?.server_id, botToken: BOT_TOKEN })
+    checkedChannels.add(key)
+  }
   return { type: 'bot', channelId: job.channel_id, token: BOT_TOKEN }
 }
 
@@ -88,7 +96,7 @@ async function deliver(job) {
   try {
     plan = await messagesFor(job)
     if (plan) {
-      await deliverMessages(targetFor(job), plan.messages, job.message_ids ?? [], {
+      await deliverMessages(await targetFor(job), plan.messages, job.message_ids ?? [], {
         mentionIds: plan.mentionIds,
         components: job.channel_id && job.kind === 'roster' ? rosterComponents(job, APP_URL) : [],
         checkpoint: (ids) =>
@@ -112,13 +120,14 @@ async function deliver(job) {
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+  checkedChannels.clear()
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
   const body = await request.json().catch(() => ({}))
   const scheduler = timingSafeEqual(request.headers.get('x-raid-dispatch-secret') ?? '', SCHEDULER_SECRET)
   const guildId = typeof body.guildId === 'string' ? body.guildId : null
   if (!scheduler) {
     if (!guildId || !/^[0-9a-f-]{36}$/i.test(guildId)) return json({ error: 'Choose a guild.' }, 400)
-    if (!(await isOfficer(request, guildId)))
+    if (!(await isGuildOfficer(request, guildId)))
       return json({ error: 'Only officers can send Discord messages.' }, 403)
   }
   try {

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#101311" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./legal.css" />
+    <title>Connecting Discord · WhenToRaid</title>
+    <script>
+      // Discord returns here after the WhenToRaid bot is added to a server. Hand the result to the
+      // app in this tab (src/lib/discord-connect.js finishes it) and drop the code from the address.
+      const params = new URLSearchParams(location.search)
+      try {
+        sessionStorage.setItem(
+          'whentoraid-discord-return',
+          JSON.stringify({
+            code: params.get('code'),
+            state: params.get('state'),
+            error: params.get('error'),
+          }),
+        )
+      } catch {
+        // Without storage the app cannot finish; Guild settings still offers to add the bot again.
+      }
+      location.replace('./#/settings')
+    </script>
+  </head>
+  <body>
+    <main>
+      <p>Connecting Discord… <a href="./#/settings">Back to WhenToRaid</a></p>
+    </main>
+  </body>
+</html>

@@ -305,6 +305,8 @@ describe('online guilds against a local Supabase', () => {
       channelId: '',
       mentionPlayers: true,
       posts: { [`${THIS_WEEK}/raid-20`]: ['1300000000000000001'] },
+      serverId: '',
+      serverName: '',
     })
     // A bot channel can replace the webhook; changing the target forgets posts made through the old one.
     await setGuildDiscord(officer, guildId, {
@@ -317,6 +319,8 @@ describe('online guilds against a local Supabase', () => {
       channelId: '1400000000000000001',
       mentionPlayers: true,
       posts: {},
+      serverId: '',
+      serverName: '',
     })
     await setGuildDiscord(officer, guildId, { webhookUrl, mentionPlayers: true })
     await expect(getGuildDiscord(player, guildId)).rejects.toMatchObject({ code: '42501' })

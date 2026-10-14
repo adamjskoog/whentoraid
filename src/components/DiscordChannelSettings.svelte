@@ -1,5 +1,13 @@
 <script>
+  import { untrack } from 'svelte'
   import { discordChannel, loadDiscordChannel, saveDiscordChannel } from '../lib/discord-channel.svelte.js'
+  import {
+    finishDiscordConnect,
+    hasDiscordReturn,
+    listDiscordChannels,
+    startDiscordConnect,
+  } from '../lib/discord-connect.js'
+  import { supabase } from '../lib/remote/client.js'
   import { postToWebhook } from '../lib/discord-webhook.js'
   import { escapeDiscord } from '../lib/roster-export.js'
   import { app } from '../lib/app.svelte.js'
@@ -51,6 +59,61 @@
     )
   }
 
+  // The bot (online guilds): added to a server on Discord's own screen, then given a channel from a list.
+  /** @type {{ id: string, name: string, category: string, canPost: boolean }[]} */
+  let channels = $state([])
+  let channelsError = $state(null)
+  let channelsLoading = $state(false)
+
+  async function loadChannels() {
+    const guildId = remote.guildId
+    channelsLoading = true
+    channelsError = null
+    try {
+      const list = await listDiscordChannels(supabase, guildId)
+      if (remote.guildId === guildId) channels = list
+    } catch (error) {
+      if (remote.guildId === guildId) channelsError = error.message
+    } finally {
+      channelsLoading = false
+    }
+  }
+
+  $effect(() => {
+    if (canManage() && remote.guildId && discordChannel.loaded && discordChannel.serverId)
+      untrack(loadChannels)
+  })
+
+  // Back from Discord's "add to server" screen: confirm the server, then offer its channels.
+  $effect(() => {
+    const guildId = remote.guildId
+    if (!guildId || !canManage() || !hasDiscordReturn()) return
+    untrack(async () => {
+      busy = true
+      try {
+        const linked = await finishDiscordConnect(supabase, guildId)
+        if (!linked) return
+        await loadDiscordChannel({ force: true })
+        showToast(
+          `WhenToRaid joined ${linked.serverName || 'your Discord server'}. Choose its channel below.`,
+        )
+      } catch (error) {
+        showToast(error.message)
+      } finally {
+        busy = false
+      }
+    })
+  })
+
+  const connect = () => run(() => startDiscordConnect(supabase, remote.guildId), 'Opening Discord…')
+
+  /** The channels to choose from, keeping a saved channel the list no longer shows. */
+  const channelOptions = $derived(
+    discordChannel.channelId && !channels.some((c) => c.id === discordChannel.channelId)
+      ? [{ id: discordChannel.channelId, name: 'saved channel', category: '', canPost: true }, ...channels]
+      : channels,
+  )
+
   const sendTest = () =>
     run(
       () =>
@@ -80,16 +143,64 @@
 {:else if !discordChannel.loaded}
   <p class="note">Loading…</p>
 {:else}
-  <details class="note">
-    <summary>How to get a webhook URL</summary>
-    <ol>
-      <li>In Discord, open the channel’s settings (the gear next to its name), then <b>Integrations</b>.</li>
-      <li><b>Webhooks</b>, then <b>New Webhook</b>. Name it, for example “WhenToRaid”.</li>
-      <li>Click <b>Copy Webhook URL</b> and paste it below.</li>
-    </ol>
-    <p>You need the Manage Webhooks permission on the server.</p>
-  </details>
   <form onsubmit={save}>
+    {#if remote.guildId}
+      <div class="bot-connect">
+        <h3>WhenToRaid bot</h3>
+        {#if discordChannel.serverId}
+          <p>
+            Added to <b>{discordChannel.serverName || 'your Discord server'}</b>. Rosters the bot posts have
+            Confirm and Can’t attend buttons.
+          </p>
+          <label class="field">
+            Bot channel
+            <select name="channelId" bind:value={channelId} disabled={busy || channelsLoading}>
+              <option value="">None (use the webhook below)</option>
+              {#each channelOptions as channel (channel.id)}
+                <option value={channel.id} disabled={!channel.canPost && channel.id !== channelId}>
+                  #{channel.name}{channel.category ? ` · ${channel.category}` : ''}{channel.canPost
+                    ? ''
+                    : ' (bot can’t post here)'}
+                </option>
+              {/each}
+            </select>
+          </label>
+          {#if channelsError}
+            <p class="warning">{channelsError}</p>
+          {/if}
+          <p class="note">
+            Missing a channel, or the bot can’t post there? Give the WhenToRaid bot View Channel and Send
+            Messages in that channel’s permissions, then refresh the list.
+          </p>
+          <div class="buttons">
+            <button type="button" disabled={busy || channelsLoading} onclick={loadChannels}
+              >Refresh channels</button
+            >
+            <button type="button" disabled={busy} onclick={connect}>Add to a different server</button>
+          </div>
+        {:else}
+          <p>
+            Add the bot to your Discord server, then pick its channel here. Rosters it posts get Confirm and
+            Can’t attend buttons. You need the Manage Server permission on the server.
+          </p>
+          <button type="button" class="primary" disabled={busy} onclick={connect}
+            >Add WhenToRaid to Discord</button
+          >
+        {/if}
+      </div>
+      <h3>Or post with a webhook</h3>
+    {/if}
+    <details class="note">
+      <summary>How to get a webhook URL</summary>
+      <ol>
+        <li>
+          In Discord, open the channel’s settings (the gear next to its name), then <b>Integrations</b>.
+        </li>
+        <li><b>Webhooks</b>, then <b>New Webhook</b>. Name it, for example “WhenToRaid”.</li>
+        <li>Click <b>Copy Webhook URL</b> and paste it below.</li>
+      </ol>
+      <p>You need the Manage Webhooks permission on the server.</p>
+    </details>
     <label class="field">
       Webhook URL
       <input
@@ -101,22 +212,8 @@
         bind:value={webhookUrl}
       />
     </label>
-    {#if remote.guildId}
-      <label class="field">
-        Bot channel ID <small>(optional: adds Confirm and Can’t attend buttons)</small>
-        <input
-          name="channelId"
-          inputmode="numeric"
-          autocomplete="off"
-          pattern={'\\d{17,20}'}
-          placeholder="Right-click the channel, then Copy Channel ID"
-          bind:value={channelId}
-        />
-      </label>
-      <p class="note">
-        Requires the WhenToRaid bot in your server with permission to send messages in that channel, and your
-        Discord server ID in Raid rules. When set, the bot posts rosters instead of the webhook.
-      </p>
+    {#if remote.guildId && channelId}
+      <p class="note">The bot channel is used while one is chosen; the webhook is kept for later.</p>
     {/if}
     <label class="checkbox-row">
       <input type="checkbox" bind:checked={mentionPlayers} />
@@ -138,3 +235,11 @@
     </div>
   </form>
 {/if}
+
+<style>
+  .bot-connect {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--line);
+  }
+</style>
