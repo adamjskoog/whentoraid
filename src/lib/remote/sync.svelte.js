@@ -1,6 +1,6 @@
 import { tick } from 'svelte'
 import { app } from '../app.svelte.js'
-import { CHECKIN_HISTORY_WEEKS, memberById, setCurrentWeek } from '../model.js'
+import { CHECKIN_HISTORY_WEEKS, setCurrentWeek } from '../model.js'
 import { DEFAULT_RAID_ID, setCurrentRaid } from '../raids.js'
 import { parseHash } from '../route.js'
 import { backupJson, loadState, parseState } from '../storage.js'
@@ -9,7 +9,7 @@ import { addDays, mondayOf, todayIso } from '../time.js'
 import { showToast } from '../toast.svelte.js'
 import { applyOps, createGuildWithRows, fetchGuild, listGuilds, myDiscordId } from './api.js'
 import { isLocalBackend, supabase } from './client.js'
-import { diffRows, mergeRows, rowsToState, stateToRows, TABLES } from './rows.js'
+import { diffRows, mergeRows, newGuildPayload, rowsToState, stateToRows, TABLES } from './rows.js'
 
 /**
  * Online guilds. While a guild is open, `app.data` still holds the whole guild and every change
@@ -528,29 +528,8 @@ export function closeGuild(preserveStoredGuild = false) {
  * @returns {Promise<string>} the new guild's id
  */
 export async function createOnlineGuild(state) {
-  const me = memberById(state, state.currentMemberId)
-  const linked = {
-    ...state,
-    members: state.members.map((m) => {
-      if (m.id === me.id) return { ...m, discordId: remote.discordId, officer: true }
-      // A Discord account belongs to one player per guild.
-      return m.discordId === remote.discordId ? { ...m, discordId: '' } : m
-    }),
-  }
-  const guildId = await createGuildWithRows(
-    supabase,
-    {
-      name: state.guild.name,
-      timezone: state.guild.timezone,
-      dayStartHour: state.guild.dayStartHour,
-      slotsPerDay: state.guild.slotsPerDay,
-      settings: { ...state.settings, ...(state.demoYear ? { demoYear: state.demoYear } : {}) },
-      discordServerId: state.guild.discordServerId,
-      officerRoleIds: state.guild.officerRoleIds,
-    },
-    { id: me.id, name: me.name, position: state.members.indexOf(me) },
-    stateToRows(linked, '00000000-0000-0000-0000-000000000000'),
-  )
+  const { guild, me, rows } = newGuildPayload(state, remote.discordId)
+  const guildId = await createGuildWithRows(supabase, guild, me, rows)
   await openGuild(guildId)
   remote.guilds = await listGuilds(supabase)
   return guildId
