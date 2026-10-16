@@ -6,7 +6,7 @@
   let { open, role, benchMembers, onchoose, onclose } = $props()
 </script>
 
-<Modal {open} {onclose}>
+<Modal {open} {onclose} label={`Add a ${role?.toLowerCase()}`}>
   <h2>Add a {role?.toLowerCase()}</h2>
   <p>Unavailable players remain selectable and will be flagged.</p>
   <div class="modal-list">

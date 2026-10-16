@@ -5,6 +5,7 @@
   import { memberById } from '../lib/model.js'
   import { canManage, remote } from '../lib/remote/sync.svelte.js'
   import Icon from './Icon.svelte'
+  import { localSave } from '../lib/save-status.svelte.js'
 
   const NAV_ITEMS = [
     { view: 'home', icon: 'home', label: 'My raids' },
@@ -88,12 +89,17 @@
       {/each}
     </nav>
     <div class="aside-bottom">
-      <span class="live-dot" class:warn={remote.status === 'error'}></span>
+      <span class="live-dot" class:warn={(remote.guildId ? remote.status : localSave.status) === 'error'}
+      ></span>
       {remote.guildId
         ? remote.status === 'error'
           ? 'Online · not saved'
-          : 'Online · shared with your guild'
-        : 'Saved in this browser'}
+          : remote.status === 'saving'
+            ? 'Online · saving…'
+            : 'Online · shared with your guild'
+        : localSave.status === 'error'
+          ? 'Browser changes not saved'
+          : 'Saved in this browser'}
       <div class="user">
         <span class="avatar" aria-hidden="true">{initials}</span>
         {#if canManage()}

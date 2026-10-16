@@ -16,7 +16,7 @@
   )
 </script>
 
-<Modal {open} {onclose}>
+<Modal {open} {onclose} label={`${member?.name ?? 'Player'}’s characters`}>
   {#if member}
     <h2>{member.name}’s characters</h2>
     <p>Switch characters or adjust this player’s role.</p>

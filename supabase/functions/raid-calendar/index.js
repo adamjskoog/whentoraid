@@ -1,6 +1,6 @@
 // A member's private calendar feed. Calendar apps cannot send sign-in headers, so the long random
 // token in the address is the credential; the database stores only its hash and can revoke it.
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 import { personalCalendar } from '../_shared/raid-service-core.js'
 
 const admin = createClient(Deno.env.get('SUPABASE_URL'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'), {

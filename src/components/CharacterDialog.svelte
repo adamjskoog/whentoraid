@@ -11,8 +11,12 @@
 
   /** Delete takes two clicks; the second one confirms. Resets whenever the dialog opens. */
   let confirmingDelete = $state(false)
+  let error = $state('')
   $effect(() => {
-    if (open) confirmingDelete = false
+    if (open) {
+      confirmingDelete = false
+      error = ''
+    }
   })
 
   function remove() {
@@ -25,7 +29,7 @@
     const previous = app.data
     const result = retireCharacter(app.data, app.data.currentMemberId, id)
     if (result.error) {
-      showToast(result.error)
+      error = result.error
       confirmingDelete = false
       return
     }
@@ -36,10 +40,11 @@
 
   function submit(event) {
     event.preventDefault()
+    error = ''
     const input = { ...readCharacterFields(new FormData(event.currentTarget)), id: character?.id }
     const result = saveCharacter(app.data, app.data.currentMemberId, input)
     if (result.error) {
-      showToast(result.error)
+      error = result.error
       return
     }
     app.data = result.state
@@ -48,12 +53,13 @@
   }
 </script>
 
-<Modal {open} {onclose}>
+<Modal {open} {onclose} label={`${character ? 'Edit' : 'Add'} character`}>
   <h2>{character ? 'Edit' : 'Add'} character</h2>
   <form onsubmit={submit}>
     <div class="settings-grid">
       <CharacterFields draft={character ?? undefined} />
     </div>
+    {#if error}<p class="warning" role="alert">{error}</p>{/if}
     <div class="buttons">
       <button class="primary">Save character</button>
       {#if character}

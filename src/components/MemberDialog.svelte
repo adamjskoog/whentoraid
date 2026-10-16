@@ -63,7 +63,7 @@
   }
 </script>
 
-<Modal {open} {onclose}>
+<Modal {open} {onclose} label={member ? `Edit ${member.name}` : 'Add a player'}>
   <h2>{member ? `Edit ${member.name}` : 'Add a player'}</h2>
   <form onsubmit={submit}>
     <div class="settings-grid">

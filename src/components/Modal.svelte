@@ -1,6 +1,6 @@
 <script>
   /** Wraps a native <dialog>. The parent owns `open`; `onclose` fires on Esc, ×, or programmatic close. */
-  let { open, onclose, children } = $props()
+  let { open, onclose, label, children } = $props()
   let dialog
 
   $effect(() => {
@@ -9,7 +9,7 @@
   })
 </script>
 
-<dialog bind:this={dialog} {onclose}>
+<dialog bind:this={dialog} {onclose} aria-label={label}>
   <button class="close" aria-label="Close" onclick={() => dialog.close()}>×</button>
   {#if open}
     {@render children()}

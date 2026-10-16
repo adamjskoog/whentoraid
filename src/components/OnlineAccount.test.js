@@ -33,3 +33,12 @@ test('a signed-in officer creates a separate demo guild online to test with', as
   expect(state.demoYear).toBeGreaterThan(2000)
   expect(state.members.length).toBe(24)
 })
+
+test('a failed account action shows its error inside the panel, not in a toast', async () => {
+  createOnlineGuild.mockRejectedValueOnce(new Error('Could not reach the server.'))
+  showToast.mockClear()
+  render(OnlineAccount)
+  await fireEvent.click(screen.getByRole('button', { name: 'Create a demo guild online' }))
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not reach the server.')
+  expect(showToast).not.toHaveBeenCalled()
+})

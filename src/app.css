@@ -384,6 +384,11 @@ fieldset.plain {
 .legal-links a {
   color: inherit;
 }
+.sidebar .legal-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .live-dot {
   display: inline-block;
   width: 6px;
@@ -1491,6 +1496,14 @@ dialog::backdrop {
   }
 }
 @media (max-width: 760px) {
+  /* Keep text-entry controls readable at phone sizes, including fields inside dialogs. */
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea,
+  .field input,
+  .field select {
+    font-size: 16px;
+  }
   button,
   .button-like {
     min-height: 44px;
