@@ -14,6 +14,7 @@ const mocked = vi.hoisted(() => ({
   applied: 0,
   signOutCalls: 0,
   applyHandler: null,
+  onSubscription: null,
 }))
 
 vi.mock('./client.js', () => ({
@@ -34,7 +35,9 @@ vi.mock('./client.js', () => ({
         on() {
           return this
         },
-        subscribe() {},
+        subscribe(callback) {
+          mocked.onSubscription = callback
+        },
       }
     },
     removeChannel() {},
@@ -64,6 +67,7 @@ import {
   dismissUnsavedDraft,
   flushOnlineChanges,
   initRemote,
+  leaveGuild,
   pushChanges,
   reapplyUnsavedDraft,
   remote,
@@ -97,6 +101,27 @@ async function openConcurrencyGuild(identity) {
   await waitFor(() => expect(remote.guildId).toBe('guild-test'))
   return stop
 }
+
+test('resubscribing refreshes changes missed during a disconnected realtime session', async () => {
+  const stop = await openConcurrencyGuild('reconnected-officer')
+  try {
+    mocked.rows = {
+      ...mocked.rows,
+      guilds: mocked.rows.guilds.map((guild) => ({ ...guild, name: 'Changed while disconnected' })),
+      revision: 1,
+    }
+    mocked.onSubscription('SUBSCRIBED')
+    await waitFor(() => expect(app.data.guild.name).toBe('Changed while disconnected'))
+    const oldSubscription = mocked.onSubscription
+    await leaveGuild()
+    const attempts = mocked.fetchAttempts
+    oldSubscription('SUBSCRIBED')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(mocked.fetchAttempts).toBe(attempts)
+  } finally {
+    stop()
+  }
+})
 
 test('independent edits retry with the fresh revision and keep queued edits and remote rows', async () => {
   const stop = await openConcurrencyGuild('concurrency-a')

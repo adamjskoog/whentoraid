@@ -623,7 +623,12 @@ function follow(guildId) {
       ),
     supabase.channel(`guild-${guildId}`),
   )
-  channel.subscribe()
+  const following = channel
+  channel.subscribe((status) => {
+    // Realtime does not replay changes missed while disconnected. Refresh after subscribing,
+    // including the first subscription, to close the gap between the initial fetch and listening.
+    if (status === 'SUBSCRIBED' && channel === following && remote.guildId === guildId) scheduleReload(0)
+  })
 }
 
 function scheduleReload(delay = RELOAD_DEBOUNCE_MS) {

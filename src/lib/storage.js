@@ -1,7 +1,8 @@
-import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
+import { DEFAULT_CHECKIN_DEADLINE, validateDeadline, validateGuild } from './guild.js'
+import { ROLES } from './constants.js'
 import { isSafeId } from './ids.js'
 import { STATE_VERSION } from './model.js'
-import { addDays, isIsoDate, isValidTimeZone } from './time.js'
+import { addDays, isIsoDate } from './time.js'
 import { DEFAULT_RAID_ID, defaultRaids, validateRaid } from './raids.js'
 
 const STORAGE_KEY = 'whentoraid-v3'
@@ -72,8 +73,26 @@ export function migrateState(value) {
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const isStringList = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string')
+const isTimestamp = (value) => Number.isFinite(value) && Math.abs(value) <= 8.64e15
 const isRange = (range) =>
-  isObject(range) && Number.isFinite(range.start) && Number.isFinite(range.end) && range.start < range.end
+  isObject(range) && isTimestamp(range.start) && isTimestamp(range.end) && range.start < range.end
+
+/** Templates keep their original grid even after the guild changes its planning hours. */
+function isGrid(grid) {
+  return (
+    isObject(grid) &&
+    Number.isInteger(grid.slotsPerDay) &&
+    !validateGuild(
+      {
+        name: 'Grid',
+        timezone: grid.timezone,
+        startHour: grid.dayStartHour,
+        endHour: grid.dayStartHour + grid.slotsPerDay / 2,
+      },
+      1,
+    )
+  )
+}
 
 const isMember = (member) => isObject(member) && isSafeId(member.id) && typeof member.name === 'string'
 
@@ -82,7 +101,8 @@ function isCharacter(character, memberIds) {
     isObject(character) &&
     isSafeId(character.id) &&
     memberIds.has(character.memberId) &&
-    ['name', 'realm', 'spec', 'class', 'role'].every((key) => typeof character[key] === 'string')
+    ['name', 'realm', 'spec', 'class', 'role'].every((key) => typeof character[key] === 'string') &&
+    ROLES.includes(character.role)
   )
 }
 
@@ -112,14 +132,34 @@ function isCheckin(checkin, weekIso) {
   )
 }
 
-function isPlan(plan) {
+function isRoster(plan) {
   return (
     isObject(plan) &&
-    Number.isFinite(plan.start) &&
+    isTimestamp(plan.start) &&
+    (plan.end === undefined || (isTimestamp(plan.end) && plan.end > plan.start)) &&
     Array.isArray(plan.team) &&
-    plan.team.every((entry) => isObject(entry) && isSafeId(entry.memberId) && isSafeId(entry.characterId)) &&
+    plan.team.every(
+      (entry) =>
+        isObject(entry) &&
+        isSafeId(entry.memberId) &&
+        isSafeId(entry.characterId) &&
+        ROLES.includes(entry.role),
+    )
+  )
+}
+
+function isPlan(plan) {
+  return (
+    isRoster(plan) &&
     (plan.locked === undefined || isStringList(plan.locked)) &&
-    (plan.attendance === undefined || plan.attendance === null || isObject(plan.attendance))
+    (plan.attendance === undefined || plan.attendance === null || isObject(plan.attendance)) &&
+    (plan.published == null ||
+      (isRoster(plan.published) &&
+        isTimestamp(plan.published.publishedAt) &&
+        typeof plan.published.raidName === 'string' &&
+        Array.isArray(plan.published.targets) &&
+        plan.published.targets.length === 3 &&
+        plan.published.targets.every((target) => Number.isInteger(target) && target >= 0 && target <= 40)))
   )
 }
 
@@ -137,10 +177,10 @@ function isWeek([weekIso, week]) {
 }
 
 const isTemplate = (template) =>
-  isObject(template) &&
+  isGrid(template) &&
   isIsoDate(template.fromWeek) &&
   Array.isArray(template.slots) &&
-  template.slots.every(Number.isInteger)
+  template.slots.every((slot) => Number.isInteger(slot) && slot >= 0 && slot < 7 * template.slotsPerDay)
 
 function hasValidRecords(value) {
   const memberIds = new Set(value.members.map((m) => m?.id))
@@ -148,6 +188,7 @@ function hasValidRecords(value) {
     value.members.every(isMember) &&
     memberIds.size === value.members.length &&
     value.characters.every((c) => isCharacter(c, memberIds)) &&
+    new Set(value.characters.map((c) => c.id)).size === value.characters.length &&
     isObject(value.weeks) &&
     Object.entries(value.weeks).every(isWeek) &&
     (value.templates === undefined ||
@@ -176,9 +217,12 @@ function isValidState(value) {
     value.members.some((m) => m?.id === value.currentMemberId) &&
     Array.isArray(value.characters) &&
     typeof value.weeks === 'object' &&
-    typeof value.guild === 'object' &&
-    isValidTimeZone(value.guild?.timezone) &&
+    isGrid(value.guild) &&
+    typeof value.guild.name === 'string' &&
+    value.guild.name.trim().length > 0 &&
+    value.guild.name.length <= 60 &&
     typeof value.settings === 'object' &&
+    !validateDeadline(value.settings?.checkinDeadline) &&
     Array.isArray(value.settings?.raids) &&
     value.settings.raids.length > 0 &&
     value.settings.raids.length <= 10 &&
@@ -268,12 +312,12 @@ export function clearState() {
   }
 }
 
-/** Whether two guilds differ in anything besides the week each viewer is looking at. */
+/** Whether two guilds differ in anything besides each tab's viewing and editing context. */
 export function sameGuild(a, b) {
   if (!a || !b) return a === b
   return (
-    JSON.stringify({ ...a, currentWeek: '', currentRaidId: '' }) ===
-    JSON.stringify({ ...b, currentWeek: '', currentRaidId: '' })
+    JSON.stringify({ ...a, currentWeek: '', currentRaidId: '', currentMemberId: '' }) ===
+    JSON.stringify({ ...b, currentWeek: '', currentRaidId: '', currentMemberId: '' })
   )
 }
 
@@ -303,8 +347,16 @@ export function backupJson(state) {
   return JSON.stringify(state, null, 2)
 }
 
+/**
+ * Largest backup accepted. A year-long demo guild is under 1 MB, and browser storage holds roughly 5 MB,
+ * so anything past this is not a guild we could keep anyway.
+ */
+export const MAX_BACKUP_BYTES = 10 * 1024 * 1024
+export const BACKUP_TOO_LARGE = 'That file is too large to be a WhenToRaid backup.'
+
 /** @returns {{ state: import('./model.js').AppState } | { error: string }} */
 export function parseBackup(text) {
+  if (text && text.length > MAX_BACKUP_BYTES) return { error: BACKUP_TOO_LARGE }
   const state = parseState(text)
   if (state) return { state }
   const reason = text ? unreadableReason(text) : 'The file is empty.'

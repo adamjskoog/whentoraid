@@ -114,7 +114,9 @@
       <p class="note">
         {online
           ? 'Online guild: your players sign in with Discord and share live check-ins and rosters.'
-          : 'Browser-only guild: saved on this device. Sign in with Discord to create a shared online guild, or move this guild online later in Guild settings.'}
+          : remote.enabled
+            ? 'Browser-only guild: saved on this device. Sign in with Discord to create a shared online guild, or move this guild online later in Guild settings.'
+            : 'Browser-only guild: saved on this device, in this browser. Download backups in Guild settings to keep a copy. Shared guilds and Discord sign-in are not available on this site.'}
       </p>
       <p>
         Starts with two 10-player raids and one 20-player raid. Rename them and tune each composition in Guild

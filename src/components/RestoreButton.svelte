@@ -1,5 +1,5 @@
 <script>
-  import { parseBackup } from '../lib/storage.js'
+  import { BACKUP_TOO_LARGE, MAX_BACKUP_BYTES, parseBackup } from '../lib/storage.js'
   import { showToast } from '../lib/toast.svelte.js'
 
   /** A file picker styled as a button. Calls `onrestore(state)` with a valid backup's guild. */
@@ -11,6 +11,11 @@
     // Clear the picker so choosing the same file again still fires `change`.
     input.value = ''
     if (!file) return
+    // Refuse oversized files before reading them into memory.
+    if (file.size > MAX_BACKUP_BYTES) {
+      showToast(BACKUP_TOO_LARGE)
+      return
+    }
     let text
     try {
       text = await file.text()

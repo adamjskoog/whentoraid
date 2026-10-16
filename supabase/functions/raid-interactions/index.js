@@ -1,7 +1,7 @@
 // Discord's Interactions Endpoint URL for the WhenToRaid application: Confirm / Can't attend buttons
 // on bot-posted rosters. Discord signs every request; nothing here trusts a caller-supplied identity.
 // Needs DISCORD_PUBLIC_KEY and DISCORD_APPLICATION_ID; until both are set every request is refused.
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 import { handleDiscordInteraction } from '../_shared/discord-interactions.js'
 
 const admin = createClient(Deno.env.get('SUPABASE_URL'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'), {

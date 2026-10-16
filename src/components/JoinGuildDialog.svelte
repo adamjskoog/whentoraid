@@ -26,7 +26,11 @@
   }
 </script>
 
-<Modal open={invite.code !== null && remote.ready} onclose={dismissInvite}>
+<Modal
+  open={invite.code !== null && remote.ready}
+  onclose={dismissInvite}
+  label={invite.details ? `Join ${invite.details.guildName}` : 'Guild invitation'}
+>
   {#if !remote.signedIn}
     <h2>You’re invited to a raid team</h2>
     <p>

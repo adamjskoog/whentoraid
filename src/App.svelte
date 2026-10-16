@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte'
   import { app } from './lib/app.svelte.js'
   import { hasUnsavedChanges, requestLeave } from './lib/leave-guard.js'
   import { setCurrentWeek } from './lib/model.js'
@@ -13,7 +14,8 @@
     remote,
   } from './lib/remote/sync.svelte.js'
   import { captureInvite, invite, loadInvite } from './lib/remote/invite.svelte.js'
-  import { sameGuild, saveState, watchOtherTabs } from './lib/storage.js'
+  import { backupJson, sameGuild, saveState, watchOtherTabs } from './lib/storage.js'
+  import { downloadText } from './lib/download.js'
   import { showToast } from './lib/toast.svelte.js'
   import EditingAsBanner from './components/EditingAsBanner.svelte'
   import JoinGuildDialog from './components/JoinGuildDialog.svelte'
@@ -78,6 +80,9 @@
             ? {
                 ...state,
                 currentWeek: app.data.currentWeek,
+                currentMemberId: state.members.some((member) => member.id === app.data.currentMemberId)
+                  ? app.data.currentMemberId
+                  : state.currentMemberId,
                 currentRaidId: state.settings.raids.some((raid) => raid.id === app.data.currentRaidId)
                   ? app.data.currentRaidId
                   : state.currentRaidId,
@@ -102,6 +107,18 @@
 
   /** Page changes add a history entry, so Back returns to the previous page; week changes replace it. */
   let lastView = app.view
+  let focusedView = app.view
+  $effect(() => {
+    const view = app.view
+    if (view === focusedView) return
+    focusedView = view
+    void tick().then(() => {
+      if (app.view !== view) return
+      const heading = document.querySelector('#content h1')
+      heading?.setAttribute('tabindex', '-1')
+      heading?.focus()
+    })
+  })
   $effect(() => {
     if (!app.data) return
     const hash = formatHash(app.view, app.data.currentWeek, app.data.currentRaidId)
@@ -138,6 +155,12 @@
 
 <svelte:window onpopstate={followUrl} onhashchange={followUrl} />
 
+<svelte:head>
+  <title
+    >{app.data ? `${VIEW_TITLES[app.view]} · ${app.data.guild.name}` : 'Set up your guild'} · WhenToRaid</title
+  >
+</svelte:head>
+
 {#if app.data}
   <a
     class="skip-link"
@@ -161,6 +184,20 @@
     </header>
 
     <div id="content" tabindex="-1">
+      {#if !remote.guildId && localSave.status === 'error'}
+        <section class="unsaved-notice" role="alert">
+          <strong>Your changes are not saved in this browser.</strong>
+          <p>Keep this page open. Download a backup before closing or reloading it.</p>
+          <button
+            onclick={() =>
+              downloadText(
+                'whentoraid-recovery.json',
+                backupJson($state.snapshot(app.data)),
+                'application/json',
+              )}>Download backup</button
+          >
+        </section>
+      {/if}
       {#if remote.hasUnsavedDraft}
         <section class="unsaved-notice" role="alert">
           <strong>Your last online edit was not saved.</strong>
@@ -218,7 +255,11 @@
 
 <JoinGuildDialog />
 
-<Modal open={discordOpen} onclose={() => (discordOpen = false)}>
+<Modal
+  open={discordOpen}
+  onclose={() => (discordOpen = false)}
+  label={remote.guildId ? 'Online guild' : 'Connect your guild'}
+>
   <h2>{remote.guildId ? 'Online guild' : 'Connect your guild'}</h2>
   <OnlineAccount />
 </Modal>

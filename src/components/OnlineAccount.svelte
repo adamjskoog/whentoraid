@@ -15,14 +15,17 @@
 
   /** Sign-in, choosing an online guild, and moving the browser guild online. */
   let busy = $state(false)
+  /** Shown inside the panel, so it stays readable when the panel is in a dialog. */
+  let error = $state('')
 
   async function run(action, done) {
     busy = true
+    error = ''
     try {
       await action()
       if (done) showToast(done)
-    } catch (error) {
-      showToast(error.message)
+    } catch (failure) {
+      error = failure.message
     } finally {
       busy = false
     }
@@ -33,12 +36,13 @@
 
   async function signOutOrConfirm() {
     busy = true
+    error = ''
     try {
       await signOut({ discardDrafts })
       discardDrafts = false
-    } catch (error) {
-      discardDrafts = error.code === 'UNSAVED_DRAFTS'
-      showToast(error.message)
+    } catch (failure) {
+      discardDrafts = failure.code === 'UNSAVED_DRAFTS'
+      error = failure.message
     } finally {
       busy = false
     }
@@ -138,3 +142,5 @@
     >
   </div>
 {/if}
+
+{#if error}<p class="warning" role="alert">{error}</p>{/if}

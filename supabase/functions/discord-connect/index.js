@@ -2,7 +2,7 @@
 // server's channels for the officer to pick from. Officers only. Needs DISCORD_APPLICATION_ID,
 // DISCORD_CLIENT_SECRET and DISCORD_BOT_TOKEN, and the app's discord-connect.html registered as an
 // OAuth2 redirect in the Discord developer portal.
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 import { ConnectError, handleConnect } from '../_shared/discord-connect.js'
 import { isGuildOfficer } from '../_shared/officer.js'
 

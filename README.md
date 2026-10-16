@@ -1,6 +1,6 @@
 # WhenToRaid — WoW: Forever prototype
 
-A Vite + Svelte 5 app. Requires Node.js 20 or newer.
+A Vite + Svelte 5 app. Use Node.js 24.15 or newer in the 24.x line. Node.js 22.22.2+ (22.x) and 26+ are also supported by the installed test tooling; Node.js 20 is not.
 
 ```sh
 npm install
@@ -72,7 +72,7 @@ How it works:
 
 The integration tests use the same helpers (`dev/local-supabase.js`). Email login stays disabled.
 
-With `.env.local` present, `npm run build`, `npm run preview`, and `npm run test:e2e` also use the local Supabase. Unit tests (`npm test`) always run browser-only.
+With `.env.local` present, `npm run build` and `npm run preview` also use the local Supabase. Unit tests (`npm test`) and browser tests (`npm run test:e2e`) always run browser-only. Browser tests start a fresh production preview on port 4174, so a stale server or developer backend settings cannot change their results. Database and online sync behavior are covered separately by `npm run test:db` and `npm run test:integration`.
 
 ### Host it
 

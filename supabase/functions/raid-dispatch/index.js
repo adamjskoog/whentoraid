@@ -1,7 +1,7 @@
 // Sends queued Discord messages: roster posts (which follow each saved publication) and reminders.
 // An officer's browser asks for its own guild right after saving; a scheduler, holding the shared
 // RAID_DISPATCH_SECRET, also queues due reminders and drains every guild.
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 import { deliverMessages, reminderMessages, rosterMessages } from '../_shared/raid-service-core.js'
 import { rosterComponents } from '../_shared/discord-interactions.js'
 import { checkChannelInServer } from '../_shared/discord-connect.js'
@@ -124,7 +124,7 @@ Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
   const body = await request.json().catch(() => ({}))
   const scheduler = timingSafeEqual(request.headers.get('x-raid-dispatch-secret') ?? '', SCHEDULER_SECRET)
-  const guildId = typeof body.guildId === 'string' ? body.guildId : null
+  const guildId = typeof body?.guildId === 'string' ? body.guildId : null
   if (!scheduler) {
     if (!guildId || !/^[0-9a-f-]{36}$/i.test(guildId)) return json({ error: 'Choose a guild.' }, 400)
     if (!(await isGuildOfficer(request, guildId)))

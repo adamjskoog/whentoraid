@@ -923,7 +923,11 @@
   onclose={() => closeDialog('player')}
 />
 
-<Modal open={manualCopyMessages !== null} onclose={() => (manualCopyMessages = null)}>
+<Modal
+  open={manualCopyMessages !== null}
+  onclose={() => (manualCopyMessages = null)}
+  label="Copy for Discord"
+>
   <h2>Copy for Discord</h2>
   <p>
     Your browser blocked clipboard access. Select the text below and copy it{manualCopyMessages?.length > 1
@@ -942,7 +946,11 @@
   {/each}
 </Modal>
 
-<Modal open={replacementTarget !== null} onclose={() => (replacementTarget = null)}>
+<Modal
+  open={replacementTarget !== null}
+  onclose={() => (replacementTarget = null)}
+  label={`Replace ${memberById(app.data, replacementTarget)?.name ?? 'player'}`}
+>
   <h2>Replace {memberById(app.data, replacementTarget)?.name ?? 'player'}</h2>
   <p>Available players offering the same role, excluding other published commitments.</p>
   <div class="modal-list">

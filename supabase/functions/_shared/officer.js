@@ -1,4 +1,4 @@
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 
 /** Whether the signed-in caller is an officer of the guild, checked with their own JWT. */
 export async function isGuildOfficer(request, guildId) {

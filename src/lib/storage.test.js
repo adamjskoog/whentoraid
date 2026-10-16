@@ -3,12 +3,15 @@ import { DEFAULT_CHECKIN_DEADLINE } from './guild.js'
 import { createSeedState } from './seed.js'
 import { STATE_VERSION } from './model.js'
 import {
+  BACKUP_TOO_LARGE,
   backupJson,
   clearState,
   loadSaved,
   loadState,
+  MAX_BACKUP_BYTES,
   migrateState,
   parseBackup,
+  sameGuild,
   saveState,
   UNREADABLE_KEY,
   unreadableReason,
@@ -16,6 +19,15 @@ import {
 } from './storage.js'
 
 const RANGE = { start: 1000, end: 2000 }
+
+function stateWithPlan() {
+  const state = createSeedState()
+  state.weeks[state.currentWeek].plans['raid-20'] = {
+    start: Date.parse('2026-10-02T18:00:00Z'),
+    team: [{ memberId: 'm0', characterId: 'c0a', role: 'Tank' }],
+  }
+  return state
+}
 
 function v3State(checkins) {
   const { version: _version, weeks: _weeks, ...rest } = v4State()
@@ -165,6 +177,65 @@ describe('saveState', () => {
 })
 
 describe('backups', () => {
+  test.each([
+    ['missing guild name', (state) => delete state.guild.name],
+    ['invalid planning hours', (state) => (state.guild.slotsPerDay = 1000000)],
+    ['invalid deadline', (state) => (state.settings.checkinDeadline = { day: 20, minutes: 0 })],
+    ['duplicate character ids', (state) => state.characters.push({ ...state.characters[0] })],
+    ['invalid role', (state) => (state.characters[0].role = 'Unknown')],
+    [
+      'broken published roster',
+      (state) => (Object.values(state.weeks)[0].plans['raid-20'].published = { team: null }),
+    ],
+    ['out-of-range date', (state) => (Object.values(state.weeks)[0].plans['raid-20'].start = 1e20)],
+    [
+      'template without a grid',
+      (state) => (state.templates = { m0: { fromWeek: state.currentWeek, slots: [0] } }),
+    ],
+    [
+      'template outside its grid',
+      (state) => (state.templates = { m0: { ...state.guild, fromWeek: state.currentWeek, slots: [-1] } }),
+    ],
+    [
+      'invalid previous template',
+      (state) =>
+        (state.templates = {
+          m0: {
+            ...state.guild,
+            fromWeek: state.currentWeek,
+            slots: [],
+            previous: { fromWeek: state.currentWeek, slots: [] },
+          },
+        }),
+    ],
+  ])('reject %s before it can replace the saved guild', (_name, damage) => {
+    const state = stateWithPlan()
+    damage(state)
+    expect(parseBackup(backupJson(state)).error).toMatch(/missing required fields/)
+  })
+
+  test('accept published history and a usual schedule with its original grid', () => {
+    const state = stateWithPlan()
+    const plan = Object.values(state.weeks)[0].plans['raid-20']
+    plan.published = {
+      start: plan.start,
+      end: plan.start + 10800000,
+      team: plan.team,
+      targets: [2, 4, 14],
+      raidName: 'Previous raid name',
+      publishedAt: plan.start - 1000,
+    }
+    state.templates = {
+      m0: { timezone: 'UTC', dayStartHour: 18, slotsPerDay: 12, fromWeek: state.currentWeek, slots: [0, 83] },
+    }
+    expect(parseBackup(backupJson(state))).toEqual({ state })
+  })
+
+  test('reject a file larger than any guild before parsing it', () => {
+    const huge = '{"padding":"' + 'x'.repeat(MAX_BACKUP_BYTES) + '"}'
+    expect(parseBackup(huge)).toEqual({ error: BACKUP_TOO_LARGE })
+  })
+
   test('round-trip a guild', () => {
     const state = createSeedState()
     expect(parseBackup(backupJson(state))).toEqual({ state })
@@ -209,6 +280,19 @@ describe('backups', () => {
       expect(parseBackup(backupJson(state)).error).toMatch(/missing required fields/)
     }
   })
+})
+
+test('viewer-only changes do not count as guild edits', () => {
+  const state = createSeedState()
+  expect(
+    sameGuild(state, {
+      ...state,
+      currentMemberId: 'm1',
+      currentRaidId: 'raid-10-1',
+      currentWeek: '2026-10-12',
+    }),
+  ).toBe(true)
+  expect(sameGuild(state, { ...state, guild: { ...state.guild, name: 'Renamed' } })).toBe(false)
 })
 
 describe('watchOtherTabs', () => {
