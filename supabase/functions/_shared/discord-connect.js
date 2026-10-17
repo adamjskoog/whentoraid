@@ -132,7 +132,10 @@ function hasChannelPermissions({ serverId, memberId, memberRoleIds, roles, chann
   return (permissions & needed) === needed
 }
 
-/** The server's text channels in Discord's order, each marked with whether the bot can post there. */
+/**
+ * The server's text channels in Discord's order, each marked with whether the bot can post there
+ * and whether it can also show sign-up cards (Embed Links).
+ */
 export async function listChannels({ serverId, botToken, fetchFn = fetch }) {
   const get = (path) => discordGet(path, botToken, fetchFn)
   const bot = await get('/users/@me')
@@ -153,12 +156,16 @@ export async function listChannels({ serverId, botToken, fetchFn = fetch }) {
       const [cb, pb] = order(b)
       return ca - cb || pa - pb
     })
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      category: categories.get(c.parent_id)?.name ?? '',
-      canPost: canPost({ serverId, memberId: bot.id, memberRoleIds: member.roles ?? [], roles, channel: c }),
-    }))
+    .map((c) => {
+      const self = { serverId, memberId: bot.id, memberRoleIds: member.roles ?? [], roles, channel: c }
+      return {
+        id: c.id,
+        name: c.name,
+        category: categories.get(c.parent_id)?.name ?? '',
+        canPost: canPost(self),
+        canEmbed: hasChannelPermissions(self, POST | EMBED_LINKS),
+      }
+    })
 }
 
 /** Refuse a bot channel outside the guild's connected server, before the bot posts there. */

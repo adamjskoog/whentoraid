@@ -112,14 +112,21 @@ describe('listing the connected server’s channels', () => {
         { id: '800000000000000009', type: 4, name: 'Raiding', position: 1 },
         { id: '800000000000000002', type: 2, name: 'Voice', position: 0 },
         { id: '800000000000000001', type: 0, name: 'general', position: 0 },
-        { id: '800000000000000003', type: 0, name: 'roster', position: 1, parent_id: '800000000000000009' },
+        {
+          id: '800000000000000003',
+          type: 0,
+          name: 'roster',
+          position: 1,
+          parent_id: '800000000000000009',
+          permission_overwrites: [{ id: SERVER, type: 0, allow: String(EMBED), deny: '0' }],
+        },
       ],
     })
     const channels = await listChannels({ serverId: SERVER, botToken: 'token', fetchFn })
     expect(channels).toEqual([
-      { id: '800000000000000001', name: 'general', category: '', canPost: true },
-      { id: '800000000000000004', name: 'officers', category: 'Raiding', canPost: false },
-      { id: '800000000000000003', name: 'roster', category: 'Raiding', canPost: true },
+      { id: '800000000000000001', name: 'general', category: '', canPost: true, canEmbed: false },
+      { id: '800000000000000004', name: 'officers', category: 'Raiding', canPost: false, canEmbed: false },
+      { id: '800000000000000003', name: 'roster', category: 'Raiding', canPost: true, canEmbed: true },
     ])
     expect(fetchFn.mock.calls[0][1].headers.Authorization).toBe('Bot token')
   })
