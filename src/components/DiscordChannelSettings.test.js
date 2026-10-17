@@ -87,7 +87,9 @@ describe('connecting the WhenToRaid bot', () => {
     await fireEvent.change(select, { target: { value: ROSTER } })
     expect(screen.queryByText(/can’t show sign-up cards/)).toBeNull()
     await fireEvent.change(select, { target: { value: '800000000000000001' } })
-    expect(screen.getByText(/can’t show sign-up cards there/).textContent).toMatch(/#general[\s\S]*Embed Links/)
+    expect(screen.getByText(/can’t show sign-up cards there/).textContent).toMatch(
+      /#general[\s\S]*Embed Links/,
+    )
   })
 
   test('coming back from Discord finishes the connection and offers the channels', async () => {
