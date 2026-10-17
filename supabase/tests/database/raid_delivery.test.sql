@@ -2,6 +2,9 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(32);
+-- Counts below cover every delivery; start from none (rolled back with the test), so rows left by
+-- integration runs against the same local database do not interfere.
+delete from public.discord_deliveries;
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'officer@example.test', '{}'),

@@ -3,7 +3,8 @@
  * (the scheduler and officers' browsers) and raid-interactions (which refreshes a sign-up post right
  * after a press). Storage, the channel check and network calls are injected, so Vitest runs it too.
  */
-import { deliverMessages, reminderMessages, rosterMessages, signupMessages } from './raid-service-core.js'
+import { deliverMessages, reminderMessages, rosterMessages } from './raid-service-core.js'
+import { signupMessages } from './signup-post.js'
 import { rosterComponents, signupComponents } from './discord-interactions.js'
 import { checkChannelInServer } from './discord-connect.js'
 

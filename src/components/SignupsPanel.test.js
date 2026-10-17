@@ -60,6 +60,40 @@ describe('Discord sign-ups panel', () => {
     expect(screen.queryByText(/raid-10/)).toBeNull()
   })
 
+  test('numbers sign-ups and benches players past their role’s target, like the Discord post', async () => {
+    const { app } = await import('../lib/app.svelte.js')
+    app.data.settings = { raids: [{ id: 'raid-20', targets: [1, 0, 19] }] }
+    app.data.characters.push({
+      id: 'c5',
+      memberId: 'm3',
+      name: 'Aegis',
+      class: 'Paladin',
+      spec: 'Protection',
+      role: 'Tank',
+    })
+    services.listRaidSignups.mockResolvedValueOnce([
+      { raid_id: 'raid-20', member_id: 'm2', status: 'signed', character_id: 'c2', after_deadline: false },
+      { raid_id: 'raid-20', member_id: 'm1', status: 'signed', character_id: 'c1', after_deadline: false },
+      { raid_id: 'raid-20', member_id: 'm3', status: 'signed', character_id: 'c5', after_deadline: false },
+    ])
+    try {
+      render(SignupsPanel, { week: WEEK, raidId: 'raid-20', canManage: false })
+      expect(await screen.findByText(/2 coming · 1 on the bench/)).toBeTruthy()
+      expect(screen.getByText('Tank 1/1 · Healer 0 · DPS 1/19')).toBeTruthy()
+      const coming = screen.getByRole('list', { name: 'Coming' })
+      expect([...coming.querySelectorAll('li')].map((li) => [li.value, li.textContent])).toEqual([
+        [1, expect.stringMatching(/^Brick/)],
+        [2, expect.stringMatching(/^Nova/)],
+      ])
+      const bench = screen.getByRole('list', { name: 'Bench' })
+      expect(bench.querySelector('li').value).toBe(3)
+      expect(bench.textContent).toMatch(/Jaina.*Aegis/)
+    } finally {
+      delete app.data.settings
+      app.data.characters.pop()
+    }
+  })
+
   test('officers post the sign-up to Discord and it is sent at once', async () => {
     render(SignupsPanel, { week: WEEK, raidId: 'raid-20', canManage: true })
     await fireEvent.click(await screen.findByRole('button', { name: 'Post sign-up in Discord' }))

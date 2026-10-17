@@ -158,7 +158,9 @@ const SIGNUP_OUTCOMES = {
   unknown: 'This post is no longer connected to a WhenToRaid raid.',
 }
 
-function savedSignup({ status, raidName, character, afterDeadline }) {
+const BENCH_ROLES = { Tank: 'tank', Healer: 'healer', DPS: 'DPS' }
+
+function savedSignup({ status, raidName, character, afterDeadline, standing }) {
   const raid = raidName || 'this raid'
   const as = character ? ` as ${character}` : ''
   const text = {
@@ -168,9 +170,14 @@ function savedSignup({ status, raidName, character, afterDeadline }) {
     absent: `You're marked absent for ${raid}. Thanks for letting your officers know.`,
   }[status]
   if (!text) return null
-  return afterDeadline
-    ? `${text} The check-in deadline has passed, so your officers will see this as a late change.`
-    : text
+  const parts = [text]
+  if (standing?.bench && (status === 'signed' || status === 'late'))
+    parts.push(
+      `The ${BENCH_ROLES[standing.role] ?? 'role'} spots are full, so you're on the bench. Your officers decide who plays.`,
+    )
+  if (afterDeadline)
+    parts.push('The check-in deadline has passed, so your officers will see this as a late change.')
+  return parts.join(' ')
 }
 
 /**
@@ -302,6 +309,18 @@ function handleSignup(interaction, args, { rpc, schedule, followup, refresh, log
       } catch (error) {
         log(`sign-up ${interaction.id} failed: ${error.message}`)
       }
+      if (result?.outcome === 'saved' && (result.status === 'signed' || result.status === 'late')) {
+        try {
+          const standing = await rpc('signup_standing', {
+            p_delivery_id: args.p_delivery_id,
+            p_discord_id: args.p_discord_id,
+          })
+          result = { ...result, standing }
+        } catch (error) {
+          // The sign-up is saved; only the bench notice is missing.
+          log(`sign-up ${interaction.id} standing failed: ${error.message}`)
+        }
+      }
       try {
         await followup(interaction, signupReply(result, args))
       } catch (error) {
@@ -335,20 +354,21 @@ function weekLink(appUrl, job) {
 export function signupComponents(job, payload, appUrl) {
   if (payload?.closed || payload?.cancelled) return []
   const link = weekLink(appUrl, job)
-  const button = (status, label, style) => ({
+  const button = (status, label, emoji, style) => ({
     type: BUTTON,
     style,
     label,
+    emoji: { name: emoji },
     custom_id: `wts:${job.id}:${status}`,
   })
   return [
     {
       type: ACTION_ROW,
       components: [
-        button('signed', 'Sign up', STYLE_SUCCESS),
-        button('late', 'Late', STYLE_PRIMARY),
-        button('tentative', 'Tentative', STYLE_SECONDARY),
-        button('absent', 'Absent', STYLE_DANGER),
+        button('signed', 'Sign up', '✅', STYLE_SUCCESS),
+        button('late', 'Late', '⏰', STYLE_PRIMARY),
+        button('tentative', 'Tentative', '❔', STYLE_SECONDARY),
+        button('absent', 'Absent', '❌', STYLE_DANGER),
         { type: BUTTON, style: STYLE_LINK, label: 'Open in WhenToRaid', url: link },
       ],
     },

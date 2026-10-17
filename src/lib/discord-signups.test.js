@@ -7,7 +7,8 @@ import {
   signupComponents,
   signupReply,
 } from '../../supabase/functions/_shared/discord-interactions.js'
-import { signupMessages } from '../../supabase/functions/_shared/raid-service-core.js'
+import { signupMessages } from '../../supabase/functions/_shared/signup-post.js'
+import { signupLineup } from '../../supabase/functions/_shared/signup-lineup.js'
 import { deliverQueued } from '../../supabase/functions/_shared/delivery-worker.js'
 
 const APP = '123456789012345678'
@@ -101,9 +102,62 @@ const signup = (name, role, status, extra = {}) => ({
   ...extra,
 })
 
+/** The single card a sign-up post sends. */
+function card(data) {
+  const messages = signupMessages(data)
+  expect(messages).toHaveLength(1)
+  expect(messages[0].content).toBe('')
+  return messages[0].embeds[0]
+}
+const fieldNamed = (embed, prefix) => embed.fields.find((field) => field.name.startsWith(prefix))
+const embedSize = (embed) =>
+  [embed.title, embed.description, embed.author?.name, embed.footer?.text]
+    .concat(embed.fields.flatMap((field) => [field.name, field.value]))
+    .reduce((sum, text) => sum + (text?.length ?? 0), 0)
+
+describe('sign-up lineup', () => {
+  it('fills each role in sign-up order up to its target and benches the rest', () => {
+    const lineup = signupLineup(
+      [
+        signup('Thrall', 'Tank', 'signed'),
+        signup('Garrosh', 'Tank', 'late'),
+        signup('Jaina', 'DPS', 'tentative'),
+        signup('Saurfang', 'Tank', 'signed'),
+        signup('Anduin', 'Healer', 'signed'),
+        signup('Feral', null, 'signed'),
+        signup('Sylvanas', null, 'absent'),
+      ],
+      [2, 1, 0],
+    )
+    expect(lineup.roles.map((r) => [r.role, r.target, r.members.map((m) => [m.name, m.number])])).toEqual([
+      [
+        'Tank',
+        2,
+        [
+          ['Thrall', 1],
+          ['Garrosh', 2],
+        ],
+      ],
+      ['Healer', 1, [['Anduin', 4]]],
+      ['DPS', 0, []],
+    ])
+    expect(lineup.bench.map((m) => [m.name, m.number])).toEqual([['Saurfang', 3]])
+    expect(lineup.other.map((m) => m.name)).toEqual(['Feral'])
+    expect(lineup.tentative.map((m) => m.name)).toEqual(['Jaina'])
+    expect(lineup.absent.map((m) => m.name)).toEqual(['Sylvanas'])
+    expect(lineup.coming).toBe(5)
+  })
+
+  it('never benches a role whose target is 0 or missing', () => {
+    const many = Array.from({ length: 5 }, (_, i) => signup(`Rogue${i}`, 'DPS', 'signed'))
+    expect(signupLineup(many, [1, 1, 0]).bench).toEqual([])
+    expect(signupLineup(many).bench).toEqual([])
+  })
+})
+
 describe('sign-up posts', () => {
-  it('lists sign-ups by role with counts against the raid targets, numbered in sign-up order', () => {
-    const text = signupMessages(
+  it('shows a card with the raid time, role columns numbered in sign-up order, and who is unsure or away', () => {
+    const embed = card(
       payload({
         signups: [
           signup('Thrall', 'Tank', 'signed'),
@@ -113,39 +167,87 @@ describe('sign-up posts', () => {
           signup('Sylvanas', null, 'absent', { class: null, spec: null }),
         ],
       }),
-    ).join('\n')
-    expect(text).toContain('**Unsanction Raid · 20-player Raid**')
-    expect(text).toContain(`<t:${START / 1000}:F> (<t:${START / 1000}:R>)`)
-    expect(text).toContain('Tanks 1/2 · Healers 1/4 · DPS 1/14 · 3 signed up')
-    expect(text).toMatch(/Tanks \(1\)\*\*\n1\. Thrall — Protection Warrior/)
-    expect(text).toMatch(/Healers \(1\)\*\*\n2\. Anduin — Holy Priest/)
-    expect(text).toMatch(/3\. Varian — Fury Warrior · late/)
-    expect(text).toContain('**Tentative (1):** Jaina')
-    expect(text).toContain('**Absent (1):** Sylvanas')
+    )
+    expect(embed.author.name).toBe('Unsanction Raid')
+    expect(embed.title).toBe('20-player Raid')
+    expect(embed.timestamp).toBe(new Date(START).toISOString())
+    expect(embed.description).toContain(`<t:${START / 1000}:F>`)
+    expect(embed.description).toContain(`<t:${START / 1000}:R>`)
+    expect(embed.description).toContain(
+      '🛡️ Tanks **1**/2 · 💚 Healers **1**/4 · ⚔️ DPS **1**/14 · **3** signed up',
+    )
+    expect(fieldNamed(embed, '🛡️ Tanks')).toMatchObject({
+      name: '🛡️ Tanks (1/2)',
+      value: '`1` 🟫 **Thrall** Protection',
+      inline: true,
+    })
+    expect(fieldNamed(embed, '💚 Healers').value).toBe('`2` ⬜ **Anduin** Holy')
+    expect(fieldNamed(embed, '⚔️ DPS').value).toBe('`3` 🟫 **Varian** Fury · late')
+    expect(fieldNamed(embed, '❔ Tentative').value).toBe('Jaina')
+    expect(fieldNamed(embed, '❌ Absent').value).toBe('Sylvanas')
+    expect(embed.color).toBe(0x57f287)
+  })
+
+  it('puts players past a full role on the bench with their role shown', () => {
+    const embed = card(
+      payload({
+        targets: [1, 1, 1],
+        signups: [signup('Thrall', 'Tank', 'signed'), signup('Garrosh', 'Tank', 'signed')],
+      }),
+    )
+    expect(embed.description).toContain('🪑 1 on the bench')
+    expect(fieldNamed(embed, '🛡️ Tanks').value).toContain('Thrall')
+    expect(fieldNamed(embed, '🪑 Bench')).toMatchObject({
+      name: '🪑 Bench (1)',
+      value: '`2` 🟫 **Garrosh** Protection Tank',
+      inline: false,
+    })
   })
 
   it('says when there are no sign-ups yet, and when the roster is published, cancelled or closed', () => {
-    expect(signupMessages(payload()).join('\n')).toContain('No sign-ups yet.')
-    expect(signupMessages(payload({ published: true })).join('\n')).toContain('Roster published')
-    expect(signupMessages(payload({ cancelled: true, closed: true })).join('\n')).toContain(
-      '**This raid has been cancelled.**',
-    )
-    expect(signupMessages(payload({ closed: true })).join('\n')).toContain('Sign-ups are closed.')
+    expect(card(payload()).description).toContain('No sign-ups yet.')
+    expect(card(payload()).fields).toEqual([])
+    const published = card(payload({ published: true }))
+    expect(published.description).toContain('Roster published')
+    expect(published.color).toBe(0x5865f2)
+    const cancelled = card(payload({ cancelled: true, closed: true }))
+    expect(cancelled.description).toBe('**This raid has been cancelled.**')
+    expect(cancelled.color).toBe(0xed4245)
+    const closed = card(payload({ closed: true }))
+    expect(closed.footer.text).toBe('Sign-ups are closed')
+    expect(closed.color).toBe(0x99aab5)
   })
 
   it('escapes player-chosen names and never pings anyone', () => {
-    const text = signupMessages(payload({ signups: [signup('@everyone', 'Tank', 'signed')] })).join('\n')
+    const embed = card(
+      payload({ signups: [signup('@everyone', 'Tank', 'signed')], guildName: 'Foo (EU)\nRaid' }),
+    )
+    const text = JSON.stringify(embed)
     expect(text).not.toContain('@everyone')
     expect(text).not.toMatch(/<@\d/)
+    expect(embed.author.name).toBe('Foo (EU) Raid')
   })
 
-  it('splits a very long sign-up list into messages Discord accepts', () => {
-    const many = Array.from({ length: 120 }, (_, i) =>
-      signup(`Raider${i}${'x'.repeat(20)}`, 'DPS', 'signed', { class: 'Rogue', spec: 'Combat' }),
+  it('keeps a very long sign-up list inside Discord embed limits', () => {
+    const many = Array.from({ length: 150 }, (_, i) =>
+      signup(
+        `Raider${i}${'x'.repeat(20)}`,
+        ['Tank', 'Healer', 'DPS', null][i % 4],
+        ['signed', 'tentative', 'absent'][i % 3],
+        {
+          class: 'Rogue',
+          spec: 'Combat',
+        },
+      ),
     )
-    const messages = signupMessages(payload({ signups: many }))
-    expect(messages.length).toBeGreaterThan(1)
-    for (const message of messages) expect(message.length).toBeLessThanOrEqual(2000)
+    const embed = card(payload({ targets: [2, 4, 14], signups: many }))
+    expect(embed.fields.length).toBeLessThanOrEqual(25)
+    for (const field of embed.fields) {
+      expect(field.value.length).toBeLessThanOrEqual(1024)
+      expect(field.value.length).toBeGreaterThan(0)
+    }
+    expect(embedSize(embed)).toBeLessThanOrEqual(6000)
+    expect(JSON.stringify(embed.fields)).toMatch(/…and \d+ more/)
   })
 
   it('offers four sign-up buttons and a link, and none once the raid is closed or cancelled', () => {
@@ -159,6 +261,7 @@ describe('sign-up posts', () => {
       'Open in WhenToRaid',
     ])
     expect(row.components[0].custom_id).toBe(`wts:${JOB}:signed`)
+    expect(row.components.slice(0, 4).map((c) => c.emoji.name)).toEqual(['✅', '⏰', '❔', '❌'])
     expect(row.components.at(-1).url).toBe(
       `https://whentoraid.example/app/?guild=${GUILD}#/availability/2026-10-26`,
     )
@@ -255,6 +358,52 @@ describe('sign-up presses', () => {
     expect(signupReply(null).content).toMatch(/could not be saved/)
   })
 
+  it('tells a player privately when their role is full and they are on the bench', async () => {
+    const work = []
+    const followup = vi.fn()
+    const rpc = vi.fn(async (name) =>
+      name === 'signup_from_discord'
+        ? { outcome: 'saved', status: 'signed', raidName: 'Raid', character: 'Garrosh', guildId: GUILD }
+        : { role: 'Tank', place: 3, target: 2, bench: true },
+    )
+    await handleDiscordInteraction(await signed(press('signed')), {
+      publicKey,
+      applicationId: APP,
+      now: NOW,
+      rpc,
+      followup,
+      schedule: (promise) => work.push(promise),
+    })
+    await Promise.all(work)
+    expect(rpc).toHaveBeenCalledWith('signup_standing', { p_delivery_id: JOB, p_discord_id: USER })
+    expect(followup.mock.calls[0][1].content).toBe(
+      "You're signed up for Raid as Garrosh. The tank spots are full, so you're on the bench. Your officers decide who plays.",
+    )
+  })
+
+  it('does not look up a standing for tentative or absent answers, and still confirms if the lookup fails', async () => {
+    const tentative = await run(press('tentative'), { outcome: 'saved', status: 'tentative', guildId: GUILD })
+    expect(tentative.rpc).toHaveBeenCalledTimes(1)
+
+    const work = []
+    const followup = vi.fn()
+    const rpc = vi.fn(async (name) => {
+      if (name === 'signup_standing') throw new Error('timeout')
+      return { outcome: 'saved', status: 'late', raidName: 'Raid', guildId: GUILD }
+    })
+    await handleDiscordInteraction(await signed(press('late')), {
+      publicKey,
+      applicationId: APP,
+      now: NOW,
+      rpc,
+      followup,
+      schedule: (promise) => work.push(promise),
+      log: () => {},
+    })
+    await Promise.all(work)
+    expect(followup.mock.calls[0][1].content).toBe("You're signed up for Raid, arriving late.")
+  })
+
   it('still replies when refreshing the post fails', async () => {
     const work = []
     const followup = vi.fn()
@@ -320,7 +469,8 @@ describe('the delivery worker', () => {
     const [url, init] = fetchFn.mock.calls[0]
     expect(url).toBe(`https://discord.com/api/v10/channels/${CHANNEL}/messages/${POST}`)
     const body = JSON.parse(init.body)
-    expect(body.content).toContain('Thrall')
+    expect(body.content).toBe('')
+    expect(JSON.stringify(body.embeds)).toContain('Thrall')
     expect(body.components[0].components[0].custom_id).toBe(`wts:${JOB}:signed`)
     expect(calls.find(([name]) => name === 'finish_discord_delivery')[1]).toMatchObject({
       p_id: JOB,
