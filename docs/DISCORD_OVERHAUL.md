@@ -21,6 +21,42 @@ Guild settings → Connections includes an **Enable / update raid commands** act
 
 The existing signup buttons, character/spec menus, reminders, published roster responses, and delivery retries continue to work.
 
+## Roster polish
+
+Published posts offer **Confirm**, **Tentative**, **Can't attend**, and **View roster**. Tentative is an
+assignment response of its own, separate from weekly availability and provisional signup answers.
+It appears in the player's app response and `/raid mine`, and separately in officer response counts
+and `/raid readiness`. Changing the assignment invalidates it just like any other response.
+
+Public signup and roster cards use full-width role sections and a blank line between player entries.
+Discord controls the outer embed width; there is no supported pixel-width setting. Tanks, healers,
+melee DPS, and ranged DPS have separate sections. Melee and ranged counts share the existing total
+DPS target and signup bench order. Classic hunters are ranged; Enhancement and Feral Combat damage
+are melee; Elemental and Balance are ranged. Unknown hybrid specs stay visible under **DPS · spec
+needed** rather than being guessed into a group.
+
+Spec artwork uses application emojis, shared across the bot's connected servers without occupying
+each server's emoji slots. The catalog is shared with the web app's talent-tree icons. Bot workers
+cache the installed emoji IDs for five minutes. A failed lookup keeps cached IDs; an unknown spec
+or missing emoji falls back to the existing class marker so delivery still works.
+
+To roll out this polish:
+
+1. Apply `20261022120000_tentative_roster_response.sql` before deploying the code.
+2. In a trusted terminal with `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN` set, run
+   `npm run discord:spec-icons`. This installs the 27 Classic spec icons from the existing Wowhead
+   artwork catalog into the Discord application. It adds only missing names, is safe to rerun after
+   interruption, and sends no channel messages. Do not commit the credentials.
+3. Deploy `raid-dispatch`, `raid-interactions`, and the frontend. Both workers need the existing
+   `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN` secrets. No command re-registration is required.
+4. Refresh an existing roster through the normal posting action. Verify its four buttons, Shadow
+   Priest icon, and melee/ranged grouping in desktop and mobile Discord. Existing messages change
+   on their next delivery; edits do not ping again. Check Tentative → Confirm → Can't attend with
+   a rostered account and verify the officer counts. Webhook-only posts retain class markers.
+
+References: [Discord embeds](https://docs.discord.com/developers/resources/message#embed-object),
+[application emojis](https://docs.discord.com/developers/resources/emoji#application-emojis).
+
 ## Access and consistency
 
 - Ed25519 signature verification and immediate private acknowledgement happen before background database work.

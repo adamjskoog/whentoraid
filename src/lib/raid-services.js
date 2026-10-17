@@ -5,7 +5,7 @@ async function rpc(client, name, args) {
   return data
 }
 
-export const RESPONSE_STATUSES = ['confirmed', 'unavailable']
+export const RESPONSE_STATUSES = ['confirmed', 'tentative', 'unavailable']
 export const MAX_RESPONSE_NOTE = 500
 
 /**
@@ -86,9 +86,9 @@ export function responsesByMember(rows, published) {
   )
 }
 
-/** For the officer summary: every rostered player is confirmed, unavailable or still waiting. */
+/** Every rostered player is confirmed, tentative, unavailable or still waiting. */
 export function responseSummary(team, byMember) {
-  const summary = { confirmed: [], unavailable: [], waiting: [] }
+  const summary = { confirmed: [], tentative: [], unavailable: [], waiting: [] }
   for (const entry of team) {
     const status = byMember[entry.memberId]?.status
     summary[RESPONSE_STATUSES.includes(status) ? status : 'waiting'].push(entry)

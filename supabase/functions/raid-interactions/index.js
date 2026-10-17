@@ -1,4 +1,4 @@
-// Discord's Interactions Endpoint URL for the WhenToRaid application: Confirm / Can't attend buttons
+// Discord's Interactions Endpoint URL: Confirm / Tentative / Can't attend buttons
 // on bot-posted rosters, and Sign up / Late / Tentative / Absent on sign-up posts. Discord signs every
 // request; nothing here trusts a caller-supplied identity.
 // Needs DISCORD_PUBLIC_KEY and DISCORD_APPLICATION_ID; until both are set every request is refused.
@@ -7,6 +7,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 import { handleDiscordInteraction } from '../_shared/discord-interactions.js'
 import { connectedChannelCheck, deliverQueued } from '../_shared/delivery-worker.js'
+import { createSpecEmojiLoader } from '../_shared/discord-spec-emojis.js'
 
 const admin = createClient(Deno.env.get('SUPABASE_URL'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'), {
   auth: { persistSession: false },
@@ -15,6 +16,7 @@ const PUBLIC_KEY = Deno.env.get('DISCORD_PUBLIC_KEY') ?? ''
 const APPLICATION_ID = Deno.env.get('DISCORD_APPLICATION_ID') ?? ''
 const BOT_TOKEN = Deno.env.get('DISCORD_BOT_TOKEN') ?? ''
 const APP_URL = Deno.env.get('WHENTORAID_APP_URL') ?? ''
+const loadSpecEmojis = createSpecEmojiLoader({ applicationId: APPLICATION_ID, botToken: BOT_TOKEN })
 /** A press needs only its own post updated; anything else queued waits for the scheduler. */
 const REFRESH_DELIVERIES = 3
 
@@ -34,6 +36,7 @@ const refresh = (guildId) =>
         guildId,
         botToken: BOT_TOKEN,
         appUrl: APP_URL,
+        loadSpecEmojis,
         checkChannel: connectedChannelCheck(admin, BOT_TOKEN),
         max: REFRESH_DELIVERIES,
       })

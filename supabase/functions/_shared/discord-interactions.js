@@ -14,7 +14,7 @@ const SNOWFLAKE = /^\d{17,20}$/
 const UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
 const SIGNUP_STATUS = '(signed|late|tentative|absent)'
 /** `wtr:<delivery id>:<delivery version>:<status>`, at most 100 characters as Discord requires. */
-const CUSTOM_ID = new RegExp(`^wtr:${UUID}:(\\d{1,15}):(confirmed|unavailable)$`)
+const CUSTOM_ID = new RegExp(`^wtr:${UUID}:(\\d{1,15}):(confirmed|tentative|unavailable)$`)
 /** `wts:<delivery id>:<status>` on a sign-up post. Not versioned: every sign-up edits the post. */
 const SIGNUP_BUTTON_ID = new RegExp(`^wts:${UUID}:${SIGNUP_STATUS}$`)
 /** `wtc:<delivery id>:<post message id>:<status>` on the private character menu. */
@@ -45,7 +45,7 @@ const MAX_OPTIONS = 25
 const MAX_LABEL = 100
 
 /** Statuses as stored in raid_responses. */
-export const RESPONSE_LABELS = { confirmed: 'Confirm', unavailable: "Can't attend" }
+export const RESPONSE_LABELS = { confirmed: 'Confirm', tentative: 'Tentative', unavailable: "Can't attend" }
 
 function hexBytes(hex) {
   if (typeof hex !== 'string' || hex.length % 2 || !/^[0-9a-f]*$/i.test(hex)) return null
@@ -167,6 +167,8 @@ const OUTCOME_MESSAGES = {
 export function outcomeMessage(result) {
   if (result?.outcome === 'saved') {
     const raid = result.raidName ? ` for ${result.raidName}` : ''
+    if (result.status === 'tentative')
+      return `You're marked tentative${raid}. Your officers can see you're unsure. Confirm when you know.`
     return result.status === 'confirmed'
       ? `You confirmed your place${raid}. Thanks!`
       : `Your officers can see you can't attend${raid}.`
@@ -474,6 +476,7 @@ export function rosterComponents(job, appUrl) {
       type: ACTION_ROW,
       components: [
         button('confirmed', STYLE_SUCCESS),
+        button('tentative', STYLE_SECONDARY),
         button('unavailable', STYLE_DANGER),
         { type: BUTTON, style: STYLE_LINK, label: 'View roster', url: link },
       ],

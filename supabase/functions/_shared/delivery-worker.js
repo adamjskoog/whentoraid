@@ -13,13 +13,15 @@ import { checkChannelInServer } from './discord-connect.js'
 export const MAX_DELIVERIES = 10
 
 /** What to send for one claimed job, or null when the job no longer needs a message. */
-async function messagesFor(job, { rpc, appUrl }) {
+async function messagesFor(job, { rpc, appUrl, loadSpecEmojis }) {
   if (job.kind === 'roster') {
     if (job.action === 'delete') return { messages: [], mentionIds: [], components: [] }
     const quiet = job.payload.cancelled || job.payload.withdrawn || !job.mention_players
     const mentionIds = quiet ? [] : job.payload.team.map((entry) => entry.discordId).filter(Boolean)
     const components = job.channel_id ? rosterComponents(job, appUrl) : []
-    return { messages: rosterMessages(job.payload, mentionIds), mentionIds, components }
+    const specEmojis =
+      job.channel_id && !job.payload.cancelled && !job.payload.withdrawn ? await loadSpecEmojis() : {}
+    return { messages: rosterMessages(job.payload, mentionIds, { specEmojis }), mentionIds, components }
   }
   if (job.kind === 'signup') {
     // Sign-ups are read now, so the post shows every press made before this send.
@@ -28,7 +30,7 @@ async function messagesFor(job, { rpc, appUrl }) {
     // A raid that started before its post went out is not announced at all.
     if (payload.closed && !job.message_ids?.length) return null
     return {
-      messages: signupMessages(payload),
+      messages: signupMessages(payload, { specEmojis: payload.cancelled ? {} : await loadSpecEmojis() }),
       mentionIds: [],
       components: signupComponents(job, payload, appUrl),
     }
@@ -113,11 +115,12 @@ export async function deliverQueued({
   appUrl,
   checkChannel,
   fetchFn = fetch,
+  loadSpecEmojis = async () => ({}),
   max = MAX_DELIVERIES,
   log = (message) => console.error(message),
 }) {
   // Channels confirmed to be in their guild's connected server during this call.
-  const context = { rpc, botToken, appUrl, checkChannel, fetchFn, log, checked: new Set() }
+  const context = { rpc, botToken, appUrl, checkChannel, fetchFn, loadSpecEmojis, log, checked: new Set() }
   const results = []
   for (let i = 0; i < max; i += 1) {
     const job = await rpc('claim_discord_delivery', { p_guild_id: guildId })

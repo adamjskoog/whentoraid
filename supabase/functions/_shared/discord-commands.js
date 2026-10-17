@@ -127,9 +127,11 @@ function personalStatus(raid) {
     parts.push(
       mine.response === 'confirmed'
         ? 'Roster confirmed'
-        : mine.response === 'unavailable'
-          ? "Rostered · you can't attend"
-          : 'Rostered · confirmation needed',
+        : mine.response === 'tentative'
+          ? 'Rostered · you are tentative'
+          : mine.response === 'unavailable'
+            ? "Rostered · you can't attend"
+            : 'Rostered · confirmation needed',
     )
     if (mine.rosterCharacter)
       parts.push(`${escapeDiscord(mine.rosterCharacter)} · ${escapeDiscord(mine.rosterRole)}`)
@@ -178,7 +180,7 @@ function officerReadiness(raid) {
   const need = roleNeeds(roles)
   return [
     need ? `Published roster needs ${need}.` : 'Published roster role targets filled.',
-    `${raid.confirmed ?? 0} confirmed · ${raid.unconfirmed ?? 0} awaiting confirmation · ${raid.unavailable ?? 0} can't attend.`,
+    `${raid.confirmed ?? 0} confirmed · ${raid.tentative ?? 0} tentative · ${raid.unconfirmed ?? 0} awaiting confirmation · ${raid.unavailable ?? 0} can't attend.`,
   ].join('\n')
 }
 

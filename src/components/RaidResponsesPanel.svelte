@@ -38,9 +38,12 @@
     <p class="warning">Responses could not be loaded: {error}</p>
   {:else}
     <p>
-      {summary.confirmed.length} confirmed · {summary.unavailable.length} can’t make it · {summary.waiting
-        .length} not answered
+      {summary.confirmed.length} confirmed · {summary.tentative.length} tentative · {summary.unavailable
+        .length} can’t make it · {summary.waiting.length} not answered
     </p>
+    {#if summary.tentative.length}
+      <p class="warning">Tentative: {summary.tentative.map((entry) => name(entry.memberId)).join(', ')}</p>
+    {/if}
     {#if summary.unavailable.length}
       <ul>
         {#each summary.unavailable as entry (entry.memberId)}

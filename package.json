@@ -14,6 +14,7 @@
     "test:integration": "vitest run --config vitest.integration.config.js",
     "db:start": "supabase start -x studio,imgproxy,vector,logflare,inbucket,edge-runtime,supavisor && supabase migration up --local",
     "db:stop": "supabase stop",
+    "discord:spec-icons": "node dev/sync-discord-spec-emojis.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

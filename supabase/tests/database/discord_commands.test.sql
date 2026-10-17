@@ -81,6 +81,13 @@ select ok(not (pg_temp.raid() -> 'roster' -> 1 ? 'response'), 'another player ca
 select is(pg_temp.raid('820000000000000001') ->> 'confirmed', '1', 'officers see confirmed assignments');
 select is(pg_temp.raid('820000000000000001') ->> 'unconfirmed', '1', 'officers see unanswered assignments');
 select is(pg_temp.raid('820000000000000001') -> 'rosterCounts', '[1,0,1]'::jsonb, 'published role counts expose a healer shortage');
+update public.raid_responses set status = 'tentative'
+where guild_id = '00000000-0000-0000-0000-00000000c001' and member_id = 'm-2';
+select is(pg_temp.raid() -> 'mine' ->> 'response', 'tentative', 'the player sees their tentative response');
+select ok(not (pg_temp.raid() ? 'tentative'), 'tentative confirmation totals stay officer-only');
+select is(pg_temp.raid('820000000000000001') ->> 'tentative', '1', 'officers see tentative assignments separately');
+select is(pg_temp.raid('820000000000000001') ->> 'confirmed', '0', 'tentative is not a confirmation');
+select is(pg_temp.raid('820000000000000001') ->> 'unconfirmed', '1', 'tentative is not an unanswered response');
 update public.plans set published = jsonb_set(published,'{team,1,role}','"Healer"')
 where guild_id = '00000000-0000-0000-0000-00000000c001' and raid_id = 'raid-10';
 select is(pg_temp.raid() -> 'mine' ->> 'response', null, 'an old confirmation is invalid after the assignment changes');
