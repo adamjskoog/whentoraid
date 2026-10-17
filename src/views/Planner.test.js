@@ -185,6 +185,15 @@ describe('Planner posting to Discord', () => {
     expect(screen.queryByRole('button', { name: 'Post to Discord' })).toBeNull()
   })
 
+  test('publishing without a channel says the roster was not posted to Discord', async () => {
+    render(Planner)
+    await screen.findByText(/Set a Discord channel in Guild settings/)
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish roster' }))
+    expect(toast.message).toBe(
+      'Roster published. Not posted to Discord: set a channel in Guild settings to post there.',
+    )
+  })
+
   test('unticking "Also post to Discord" publishes quietly; posting stays one click away', async () => {
     localStorage.setItem(
       'whentoraid-discord-channel',
