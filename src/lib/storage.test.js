@@ -272,6 +272,30 @@ describe('backups', () => {
       },
       {
         ...seed,
+        weeks: {
+          ...seed.weeks,
+          [week]: {
+            ...seed.weeks[week],
+            checkins: {
+              ...seed.weeks[week].checkins,
+              [firstMember]: {
+                checkedIn: true,
+                ranges: [],
+                declined: [],
+                raids: {
+                  'raid-20': {
+                    participating: true,
+                    declined: [],
+                    signedAs: { characterId: 'c0a', spec: 'Holy', role: 'Wizard' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        ...seed,
         weeks: { ...seed.weeks, [week]: { ...seed.weeks[week], plans: { 'raid-20': { team: [] } } } },
       },
       { ...seed, templates: { [firstMember]: { fromWeek: 'soon', slots: [] } } },

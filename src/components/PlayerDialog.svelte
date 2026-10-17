@@ -1,7 +1,7 @@
 <script>
   import { app } from '../lib/app.svelte.js'
   import { attendanceRecord, formatRecord, RECORD_LOOKBACK_WEEKS } from '../lib/attendance.js'
-  import { charactersOf, getCheckin, isOffered, memberById, tracksAttendance } from '../lib/model.js'
+  import { getCheckin, isOffered, memberById, raidCharactersOf, tracksAttendance } from '../lib/model.js'
   import Modal from './Modal.svelte'
   import { rosterExplanation } from '../lib/raid-workflow.js'
 
@@ -9,7 +9,8 @@
   let { open, memberId, inTeam, onpick, onbench, onclose, plan, players = [] } = $props()
 
   const member = $derived(memberId ? memberById(app.data, memberId) : null)
-  const characters = $derived(memberId ? charactersOf(app.data, memberId) : [])
+  // As they play in this raid: a spec chosen at Discord sign-up shows here and is the role they are placed in.
+  const characters = $derived(memberId ? raidCharactersOf(app.data, app.data.currentWeek, memberId) : [])
   const checkin = $derived(memberId ? getCheckin(app.data, app.data.currentWeek, memberId) : null)
   const record = $derived(
     memberId ? formatRecord(attendanceRecord(app.data, app.data.currentWeek, memberId)) : null,

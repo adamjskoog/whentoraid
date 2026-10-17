@@ -2,7 +2,7 @@
   import { app } from '../lib/app.svelte.js'
   import { CLASS_COLORS, ROLE_ICONS } from '../lib/constants.js'
   import { conflicts } from '../lib/engine.js'
-  import { characterById, memberById } from '../lib/model.js'
+  import { memberById, rosterCharacter } from '../lib/model.js'
   import { BENCH_LOOKBACK_WEEKS } from '../lib/planning.js'
   import { specIconUrl } from '../lib/spec-icons.js'
   import { touchDrag } from '../lib/touch-drag.js'
@@ -25,7 +25,8 @@
   } = $props()
 
   const member = $derived(memberById(app.data, entry.memberId))
-  const character = $derived(characterById(app.data, entry.characterId))
+  // As they play in this raid: a spec chosen at Discord sign-up replaces the saved one.
+  const character = $derived(rosterCharacter(app.data, app.data.currentWeek, entry))
   const problems = $derived(conflicts(entry, players, window))
   const iconUrl = $derived(character ? specIconUrl(character.class, character.spec) : null)
   /** A blocked or offline icon falls back to the role symbol. */

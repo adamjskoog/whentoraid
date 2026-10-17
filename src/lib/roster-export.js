@@ -1,7 +1,7 @@
 import { ROLES } from './constants.js'
 import { conflicts } from './engine.js'
 import { formatSessionIn } from './grid.js'
-import { characterById, memberById } from './model.js'
+import { memberById, rosterCharacter } from './model.js'
 import { benchGroups } from './planning.js'
 import { formatMonthDay } from './time.js'
 import { getRaid } from './raids.js'
@@ -59,7 +59,7 @@ export const CLASS_MARKERS = {
 
 function describeEntry(state, entry, players, plan) {
   const member = memberById(state, entry.memberId)
-  const character = characterById(state, entry.characterId)
+  const character = rosterCharacter(state, state.currentWeek, entry)
   if (!member || !character) return null
   return { member, character, warnings: conflicts(entry, players, plan) }
 }

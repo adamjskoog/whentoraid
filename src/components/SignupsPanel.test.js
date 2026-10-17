@@ -94,6 +94,23 @@ describe('Discord sign-ups panel', () => {
     }
   })
 
+  test('a spec chosen at sign-up shows and counts toward its role for this raid', async () => {
+    services.listRaidSignups.mockResolvedValueOnce([
+      {
+        raid_id: 'raid-20',
+        member_id: 'm2',
+        status: 'signed',
+        character_id: 'c2',
+        after_deadline: false,
+        spec: 'Arms',
+        role: 'DPS',
+      },
+    ])
+    render(SignupsPanel, { week: WEEK, raidId: 'raid-20', canManage: false })
+    expect(await screen.findByText('Tank 0 · Healer 0 · DPS 1')).toBeTruthy()
+    expect(screen.getByRole('list', { name: 'Coming' }).textContent).toMatch(/Bulwark \(Arms Warrior\)/)
+  })
+
   test('officers post the sign-up to Discord and it is sent at once', async () => {
     render(SignupsPanel, { week: WEEK, raidId: 'raid-20', canManage: true })
     await fireEvent.click(await screen.findByRole('button', { name: 'Post sign-up in Discord' }))
