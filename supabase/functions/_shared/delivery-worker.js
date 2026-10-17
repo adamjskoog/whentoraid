@@ -3,7 +3,8 @@
  * (the scheduler and officers' browsers) and raid-interactions (which refreshes a sign-up post right
  * after a press). Storage, the channel check and network calls are injected, so Vitest runs it too.
  */
-import { deliverMessages, reminderMessages, rosterMessages } from './raid-service-core.js'
+import { deliverMessages, reminderMessages } from './raid-service-core.js'
+import { rosterMessages } from './roster-post.js'
 import { signupMessages } from './signup-post.js'
 import { rosterComponents, signupComponents } from './discord-interactions.js'
 import { checkChannelInServer } from './discord-connect.js'
@@ -48,8 +49,8 @@ async function targetFor(job, { botToken, appUrl, checkChannel, checked }) {
   if (!job.channel_id) return job.webhook_url
   // Without the app address, posts would lose their buttons silently, so refuse instead.
   if (!botToken || !appUrl) throw new Error('The WhenToRaid Discord bot is not configured on this server.')
-  // Sign-up cards are embeds, which need one more channel permission than text posts.
-  const needEmbeds = job.kind === 'signup'
+  // Sign-up and roster cards are embeds, which need one more channel permission than text posts.
+  const needEmbeds = job.kind === 'signup' || job.kind === 'roster'
   const key = `${job.guild_id}/${job.channel_id}/${needEmbeds}`
   if (!checked.has(key)) {
     await checkChannel(job.guild_id, job.channel_id, { needEmbeds })

@@ -65,44 +65,6 @@ export const escapeDiscord = (value) =>
     .replace(/:\/\//g, ':\u200b//')
     .replace(/\./g, '.\u200b')
     .replace(/[\r\n]/g, ' ')
-/** Discord accepts at most 100 user mentions per message. */
-const MAX_MENTIONS = 100
-
-/** `mentionIds`: players to ping (only on the first post; edits never ping again). */
-export function rosterMessages(payload, mentionIds = []) {
-  const lines = [`**${escapeDiscord(payload.guildName)} · ${escapeDiscord(payload.raidName)}**`]
-  if (payload.cancelled || payload.withdrawn)
-    lines.push(
-      payload.cancelled
-        ? '**This raid has been cancelled.**'
-        : '**This roster has been withdrawn. Await a new published roster.**',
-    )
-  else {
-    lines.push(
-      `<t:${Math.floor(payload.start / 1000)}:F>`,
-      ...payload.team.map((entry) => `${escapeDiscord(entry.role)} · ${escapeDiscord(entry.name)}`),
-    )
-    const pings = mentionIds.filter((id) => /^\d{17,20}$/.test(id)).slice(0, MAX_MENTIONS)
-    if (pings.length) lines.push(`**Raiders:** ${pings.map((id) => `<@${id}>`).join(' ')}`)
-  }
-  return chunkLines(lines)
-}
-
-/** Lines joined into as few messages as possible, each well inside Discord's 2000 characters. */
-function chunkLines(lines) {
-  const chunks = []
-  let chunk = ''
-  for (const line of lines) {
-    if (chunk && chunk.length + line.length + 1 > 1900) {
-      chunks.push(chunk)
-      chunk = ''
-    }
-    chunk += (chunk ? '\n' : '') + line.slice(0, 1900)
-  }
-  if (chunk) chunks.push(chunk)
-  return chunks
-}
-
 export function reminderMessages(payload) {
   const targets = (payload.recipients ?? []).map((member) =>
     /^\d{17,20}$/.test(member.discordId) ? `<@${member.discordId}>` : escapeDiscord(member.name),

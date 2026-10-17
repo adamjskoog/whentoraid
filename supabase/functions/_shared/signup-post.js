@@ -20,7 +20,7 @@ const CLASS_MARKS = {
   Warlock: '🟪',
   Druid: '🟧',
 }
-const ROLE_HEADINGS = { Tank: '🛡️ Tanks', Healer: '💚 Healers', DPS: '⚔️ DPS' }
+export const ROLE_HEADINGS = { Tank: '🛡️ Tanks', Healer: '💚 Healers', DPS: '⚔️ DPS' }
 const COLORS = { open: 0x57f287, published: 0x5865f2, closed: 0x99aab5, cancelled: 0xed4245 }
 const FOOTERS = {
   open: 'Press a button to answer · Sign-ups close when the raid starts',
@@ -29,7 +29,7 @@ const FOOTERS = {
   cancelled: 'This raid has been cancelled',
 }
 
-function entryLine(entry, { withRole = false } = {}) {
+export function entryLine(entry, { withRole = false } = {}) {
   const mark = CLASS_MARKS[entry.class] ?? '▫️'
   const build = withRole ? [entry.spec, entry.role].filter(Boolean).join(' ') : (entry.spec ?? '')
   const late = entry.status === 'late' ? ' · late' : ''
