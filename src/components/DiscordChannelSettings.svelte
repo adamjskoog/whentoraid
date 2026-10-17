@@ -170,7 +170,8 @@
           {/if}
           <p class="note">
             Missing a channel, or the bot can’t post there? Give the WhenToRaid bot View Channel and Send
-            Messages in that channel’s permissions, then refresh the list.
+            Messages in that channel’s permissions, then refresh the list. Sign-up posts also need Embed
+            Links.
           </p>
           <div class="buttons">
             <button type="button" disabled={busy || channelsLoading} onclick={loadChannels}
