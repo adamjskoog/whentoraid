@@ -13,6 +13,8 @@ vi.mock('../lib/raid-services.js', () => ({
     interval_hours: 24,
     lead_hours: 24,
     only_unconfirmed: true,
+    signup_enabled: false,
+    signup_lead_days: 7,
   })),
   setReminderSettings: vi.fn(async () => {}),
   createCalendarSubscription: vi.fn(async () => 'a'.repeat(64)),
@@ -40,6 +42,20 @@ describe('Discord reminder settings', () => {
       {},
       'g1',
       expect.objectContaining({ upcoming_enabled: true, lead_hours: 6 }),
+    )
+  })
+
+  test('turning on sign-up posts saves how many days ahead they appear', async () => {
+    render(ReminderSettings)
+    const signups = await screen.findByRole('checkbox', { name: /Post sign-ups/ })
+    expect(signups.checked).toBe(false)
+    await fireEvent.click(signups)
+    await fireEvent.change(screen.getByLabelText('Days before the raid'), { target: { value: '3' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Save reminders' }))
+    expect(services.setReminderSettings).toHaveBeenCalledWith(
+      {},
+      'g1',
+      expect.objectContaining({ signup_enabled: true, signup_lead_days: 3 }),
     )
   })
 

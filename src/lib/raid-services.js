@@ -126,6 +126,18 @@ export async function dispatchDiscordDeliveries(client, guildId) {
   return data?.results ?? []
 }
 
+/** A week's Discord sign-ups for every raid, in sign-up order. Any guild member may read them. */
+export const listRaidSignups = (client, guildId, week) =>
+  rpc(client, 'get_raid_signups', { p_guild_id: guildId, p_week: week })
+
+/** Officers: post a raid's sign-up to Discord now (or refresh it); the worker sends it. */
+export const queueSignupPost = (client, guildId, week, raidId) =>
+  rpc(client, 'queue_signup_post', { p_guild_id: guildId, p_week: week, p_raid_id: raidId })
+
+/** Officers: whether a raid's sign-up post is in Discord, queued, or failed. */
+export const getSignupPost = (client, guildId, week, raidId) =>
+  rpc(client, 'get_signup_post', { p_guild_id: guildId, p_week: week, p_raid_id: raidId })
+
 export const createCalendarSubscription = (client, guildId) =>
   rpc(client, 'create_raid_calendar', { p_guild_id: guildId })
 
