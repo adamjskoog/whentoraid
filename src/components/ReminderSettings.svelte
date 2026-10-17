@@ -17,6 +17,7 @@
     [168, 'Once a week'],
   ]
   const MAX_LEAD_HOURS = 72
+  const SIGNUP_LEAD_DAYS = [1, 2, 3, 5, 7, 10, 14]
 
   let settings = $state(null)
   let saved = $state(null)
@@ -93,6 +94,24 @@
         Only players who haven’t confirmed yet
       </label>
       <p class="note">Players who said they can’t make it are never reminded.</p>
+    {/if}
+    <label class="checkbox-row">
+      <input type="checkbox" bind:checked={settings.signup_enabled} />
+      Post sign-ups for upcoming raids
+    </label>
+    {#if settings.signup_enabled}
+      <label class="field">
+        Days before the raid
+        <select bind:value={settings.signup_lead_days}>
+          {#each SIGNUP_LEAD_DAYS as days (days)}<option value={days}
+              >{days === 1 ? '1 day' : `${days} days`}</option
+            >{/each}
+        </select>
+      </label>
+      <p class="note">
+        Players press Sign up, Late, Tentative or Absent on the post, and their answer fills in their
+        availability for that raid. Needs the WhenToRaid bot channel. Raids already published are skipped.
+      </p>
     {/if}
     <div class="buttons">
       <button class="primary" disabled={busy || !changed}>Save reminders</button>

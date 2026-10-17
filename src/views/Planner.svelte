@@ -14,6 +14,7 @@
   import WeekBar from '../components/WeekBar.svelte'
   import RaidSelector from '../components/RaidSelector.svelte'
   import RaidResponsesPanel from '../components/RaidResponsesPanel.svelte'
+  import SignupsPanel from '../components/SignupsPanel.svelte'
   import WeeklyOverview from '../components/WeeklyOverview.svelte'
   import {
     copyPreviousRoster,
@@ -868,6 +869,9 @@
       aria-labelledby="planner-tab-responses"
       hidden={section !== 'responses'}
     >
+      {#if usesServerDelivery()}
+        <SignupsPanel week={weekIso} raidId={app.data.currentRaidId} canManage={canManage()} />
+      {/if}
       {#if published && !savedPlan?.cancelled}
         {#if responses.key === responsesKey}
           <RaidResponsesPanel
