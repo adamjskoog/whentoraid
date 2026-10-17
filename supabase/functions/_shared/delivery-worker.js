@@ -3,7 +3,8 @@
  * (the scheduler and officers' browsers) and raid-interactions (which refreshes a sign-up post right
  * after a press). Storage, the channel check and network calls are injected, so Vitest runs it too.
  */
-import { deliverMessages, reminderMessages, rosterMessages, signupMessages } from './raid-service-core.js'
+import { deliverMessages, reminderMessages, rosterMessages } from './raid-service-core.js'
+import { signupMessages } from './signup-post.js'
 import { rosterComponents, signupComponents } from './discord-interactions.js'
 import { checkChannelInServer } from './discord-connect.js'
 
@@ -47,9 +48,11 @@ async function targetFor(job, { botToken, appUrl, checkChannel, checked }) {
   if (!job.channel_id) return job.webhook_url
   // Without the app address, posts would lose their buttons silently, so refuse instead.
   if (!botToken || !appUrl) throw new Error('The WhenToRaid Discord bot is not configured on this server.')
-  const key = `${job.guild_id}/${job.channel_id}`
+  // Sign-up cards are embeds, which need one more channel permission than text posts.
+  const needEmbeds = job.kind === 'signup'
+  const key = `${job.guild_id}/${job.channel_id}/${needEmbeds}`
   if (!checked.has(key)) {
-    await checkChannel(job.guild_id, job.channel_id)
+    await checkChannel(job.guild_id, job.channel_id, { needEmbeds })
     checked.add(key)
   }
   return { type: 'bot', channelId: job.channel_id, token: botToken }
@@ -125,13 +128,13 @@ export async function deliverQueued({
 
 /** The production channel check: the channel must be in the Discord server the guild connected. */
 export function connectedChannelCheck(admin, botToken) {
-  return async (guildId, channelId) => {
+  return async (guildId, channelId, { needEmbeds = false } = {}) => {
     const { data, error } = await admin
       .from('guild_discord_servers')
       .select('server_id')
       .eq('guild_id', guildId)
       .maybeSingle()
     if (error) throw new Error(`guild_discord_servers: ${error.message}`)
-    await checkChannelInServer({ channelId, serverId: data?.server_id, botToken })
+    await checkChannelInServer({ channelId, serverId: data?.server_id, botToken, needEmbeds })
   }
 }

@@ -6,6 +6,7 @@
   import { supabase } from '../lib/remote/client.js'
   import { remote } from '../lib/remote/sync.svelte.js'
   import { showToast } from '../lib/toast.svelte.js'
+  import { signupLineup } from '../../supabase/functions/_shared/signup-lineup.js'
 
   /**
    * Online guilds: who answered this raid's Discord sign-up post, and (officers) posting it.
@@ -42,14 +43,29 @@
     loadPost().catch(() => (post = null))
   })
 
-  const rows = $derived(signups.rows.filter((row) => row.raid_id === raidId))
-  const coming = $derived(rows.filter((row) => row.status === 'signed' || row.status === 'late'))
-  const tentative = $derived(rows.filter((row) => row.status === 'tentative'))
-  const absent = $derived(rows.filter((row) => row.status === 'absent'))
+  const characterOf = (row) => app.data.characters.find((c) => c.id === row.character_id)
+  const targets = $derived(app.data.settings?.raids?.find((raid) => raid.id === raidId)?.targets ?? [])
+  // The same placement as the Discord post: roles fill in sign-up order, the rest wait on the bench.
+  const lineup = $derived(
+    signupLineup(
+      signups.rows
+        .filter((row) => row.raid_id === raidId)
+        .map((row) => ({ ...row, role: characterOf(row)?.role ?? null })),
+      targets,
+    ),
+  )
+  const coming = $derived(
+    [...lineup.roles.flatMap((group) => group.members), ...lineup.other].sort((a, b) => a.number - b.number),
+  )
+  const roleCounts = $derived(
+    lineup.roles
+      .map(({ role, target, members }) => `${role} ${members.length}${target ? `/${target}` : ''}`)
+      .join(' · '),
+  )
 
   const memberName = (row) => app.data.members.find((m) => m.id === row.member_id)?.name ?? 'Removed player'
   function characterLabel(row) {
-    const character = app.data.characters.find((c) => c.id === row.character_id)
+    const character = characterOf(row)
     if (!character) return ''
     const build = [character.spec, character.class].filter(Boolean).join(' ')
     return build ? `${character.name} (${build})` : character.name
@@ -93,22 +109,33 @@
   {:else if signups.key !== key}
     <p role="status">Loading sign-ups…</p>
   {:else}
-    <p>{coming.length} coming · {tentative.length} tentative · {absent.length} absent</p>
+    <p>
+      {coming.length} coming{lineup.bench.length ? ` · ${lineup.bench.length} on the bench` : ''} · {lineup
+        .tentative.length} tentative · {lineup.absent.length} absent
+    </p>
+    {#if lineup.coming}<p class="note">{roleCounts}</p>{/if}
     {#if coming.length}
-      <ul aria-label="Coming">
-        {#each coming as row (row.member_id)}<li>{describe(row)}</li>{/each}
-      </ul>
+      <ol aria-label="Coming">
+        {#each coming as row (row.member_id)}<li value={row.number}>{describe(row)}</li>{/each}
+      </ol>
     {/if}
-    {#if tentative.length}
+    {#if lineup.bench.length}
+      <h3>Bench</h3>
+      <p class="note">Signed up after their role was full. Choose who plays in the roster builder.</p>
+      <ol aria-label="Bench">
+        {#each lineup.bench as row (row.member_id)}<li value={row.number}>{describe(row)}</li>{/each}
+      </ol>
+    {/if}
+    {#if lineup.tentative.length}
       <h3>Tentative</h3>
       <ul aria-label="Tentative">
-        {#each tentative as row (row.member_id)}<li>{describe(row)}</li>{/each}
+        {#each lineup.tentative as row (row.member_id)}<li>{describe(row)}</li>{/each}
       </ul>
     {/if}
-    {#if absent.length}
+    {#if lineup.absent.length}
       <h3>Absent</h3>
       <ul aria-label="Absent">
-        {#each absent as row (row.member_id)}<li>{describe(row)}</li>{/each}
+        {#each lineup.absent as row (row.member_id)}<li>{describe(row)}</li>{/each}
       </ul>
     {/if}
   {/if}
@@ -130,7 +157,8 @@
 </section>
 
 <style>
-  ul {
+  ul,
+  ol {
     padding-left: 1.25rem;
   }
   h3 {

@@ -19,9 +19,9 @@ vi.mock('../lib/discord-connect.js', () => ({
   finishDiscordConnect: vi.fn(async () => null),
   startDiscordConnect: vi.fn(async () => {}),
   listDiscordChannels: vi.fn(async () => [
-    { id: '800000000000000001', name: 'general', category: '', canPost: true },
-    { id: '800000000000000004', name: 'officers', category: 'Raiding', canPost: false },
-    { id: ROSTER, name: 'roster', category: 'Raiding', canPost: true },
+    { id: '800000000000000001', name: 'general', category: '', canPost: true, canEmbed: false },
+    { id: '800000000000000004', name: 'officers', category: 'Raiding', canPost: false, canEmbed: false },
+    { id: ROSTER, name: 'roster', category: 'Raiding', canPost: true, canEmbed: true },
   ]),
 }))
 vi.mock('../lib/toast.svelte.js', () => ({ showToast: vi.fn() }))
@@ -73,6 +73,23 @@ describe('connecting the WhenToRaid bot', () => {
     await fireEvent.change(select, { target: { value: ROSTER } })
     await fireEvent.click(screen.getByRole('button', { name: 'Save channel' }))
     expect(api.setGuildDiscord).toHaveBeenCalledWith({}, 'g1', expect.objectContaining({ channelId: ROSTER }))
+  })
+
+  test('channels where the bot lacks Embed Links are flagged, with a fix when one is chosen', async () => {
+    await show(stored({ serverId: SERVER, serverName: 'After Hours' }))
+    const select = screen.getByLabelText('Bot channel')
+    await waitFor(() => expect(select.options.length).toBe(4))
+    const option = (id) => [...select.options].find((o) => o.value === id)
+    expect(option('800000000000000001').textContent).toMatch(/no Embed Links: sign-up cards won’t show/)
+    expect(option('800000000000000001').disabled).toBe(false)
+    expect(option(ROSTER).textContent.trim()).toBe('#roster · Raiding')
+
+    await fireEvent.change(select, { target: { value: ROSTER } })
+    expect(screen.queryByText(/can’t show sign-up cards/)).toBeNull()
+    await fireEvent.change(select, { target: { value: '800000000000000001' } })
+    expect(screen.getByText(/can’t show sign-up cards there/).textContent).toMatch(
+      /#general[\s\S]*Embed Links/,
+    )
   })
 
   test('coming back from Discord finishes the connection and offers the channels', async () => {

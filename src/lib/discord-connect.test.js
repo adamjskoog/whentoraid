@@ -14,6 +14,7 @@ const OFFICERS = '700000000000000003'
 const BOT_ROLE = '700000000000000004'
 const VIEW = 1 << 10
 const SEND = 1 << 11
+const EMBED = 1 << 14
 const GUILD_ID = '11111111-2222-3333-4444-555555555555'
 const REDIRECT = 'https://whentoraid.github.io/discord-connect.html'
 
@@ -111,14 +112,21 @@ describe('listing the connected server’s channels', () => {
         { id: '800000000000000009', type: 4, name: 'Raiding', position: 1 },
         { id: '800000000000000002', type: 2, name: 'Voice', position: 0 },
         { id: '800000000000000001', type: 0, name: 'general', position: 0 },
-        { id: '800000000000000003', type: 0, name: 'roster', position: 1, parent_id: '800000000000000009' },
+        {
+          id: '800000000000000003',
+          type: 0,
+          name: 'roster',
+          position: 1,
+          parent_id: '800000000000000009',
+          permission_overwrites: [{ id: SERVER, type: 0, allow: String(EMBED), deny: '0' }],
+        },
       ],
     })
     const channels = await listChannels({ serverId: SERVER, botToken: 'token', fetchFn })
     expect(channels).toEqual([
-      { id: '800000000000000001', name: 'general', category: '', canPost: true },
-      { id: '800000000000000004', name: 'officers', category: 'Raiding', canPost: false },
-      { id: '800000000000000003', name: 'roster', category: 'Raiding', canPost: true },
+      { id: '800000000000000001', name: 'general', category: '', canPost: true, canEmbed: false },
+      { id: '800000000000000004', name: 'officers', category: 'Raiding', canPost: false, canEmbed: false },
+      { id: '800000000000000003', name: 'roster', category: 'Raiding', canPost: true, canEmbed: true },
     ])
     expect(fetchFn.mock.calls[0][1].headers.Authorization).toBe('Bot token')
   })
@@ -165,6 +173,37 @@ describe('the bot only posts in the connected server', () => {
       checkChannelInServer({ channelId: '800000000000000001', serverId: null, botToken: 't', fetchFn }),
     ).rejects.toThrow(/Add WhenToRaid to your Discord server/)
   })
+
+  test('sign-up cards also need Embed Links in the channel', async () => {
+    const api = (everyone, overwrites = []) =>
+      discordApi({
+        'GET /channels/800000000000000001': {
+          id: '800000000000000001',
+          guild_id: SERVER,
+          permission_overwrites: overwrites,
+        },
+        'GET /users/@me': { id: BOT },
+        [`GET /guilds/${SERVER}/members/${BOT}`]: { roles: [BOT_ROLE] },
+        [`GET /guilds/${SERVER}/roles`]: [
+          { id: SERVER, permissions: String(everyone) },
+          { id: BOT_ROLE, permissions: '0' },
+        ],
+      })
+    const check = (fetchFn, needEmbeds = true) =>
+      checkChannelInServer({
+        channelId: '800000000000000001',
+        serverId: SERVER,
+        botToken: 't',
+        needEmbeds,
+        fetchFn,
+      })
+
+    await expect(check(api(VIEW | SEND))).rejects.toThrow(/Embed Links/)
+    await expect(check(api(VIEW | SEND), false)).resolves.toBeUndefined()
+    await expect(check(api(VIEW | SEND | EMBED))).resolves.toBeUndefined()
+    const allowed = [{ id: BOT_ROLE, type: 0, allow: String(EMBED), deny: '0' }]
+    await expect(check(api(VIEW | SEND, allowed))).resolves.toBeUndefined()
+  })
 })
 
 describe('officer requests', () => {
@@ -177,7 +216,7 @@ describe('officer requests', () => {
     expect(Object.fromEntries(params)).toEqual({
       client_id: BOT,
       scope: 'bot',
-      permissions: String(VIEW | SEND),
+      permissions: String(VIEW | SEND | EMBED),
       response_type: 'code',
       redirect_uri: REDIRECT,
       state: 'a'.repeat(32),

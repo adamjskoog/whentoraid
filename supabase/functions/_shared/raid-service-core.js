@@ -58,7 +58,7 @@ export function personalCalendar(events) {
 }
 
 /** Player-chosen names must not ping, format, or become links (masked or bare) in the channel. */
-const escapeDiscord = (value) =>
+export const escapeDiscord = (value) =>
   String(value ?? '')
     .replace(/@/g, '@\u200b')
     .replace(/([\\`*_~|<>[\]()#])/g, '\\$1')
@@ -101,64 +101,6 @@ function chunkLines(lines) {
   }
   if (chunk) chunks.push(chunk)
   return chunks
-}
-
-/** Role groups in roster order, matching ROLES and ROLE_ICONS in src/lib/constants.js. */
-const SIGNUP_GROUPS = [
-  { role: 'Tank', icon: '◈', label: 'Tanks' },
-  { role: 'Healer', icon: '✧', label: 'Healers' },
-  { role: 'DPS', icon: '⚔', label: 'DPS' },
-]
-const COMING = new Set(['signed', 'late'])
-
-function signupLine(entry, number) {
-  const build = [entry.spec, entry.class].filter(Boolean).map(escapeDiscord).join(' ')
-  const late = entry.status === 'late' ? ' · late' : ''
-  return `${number}. ${escapeDiscord(entry.name)}${build ? ` — ${build}` : ''}${late}`
-}
-
-/**
- * A Raid-Helper-style sign-up post: who is coming, grouped by role and numbered in sign-up order,
- * with counts against the raid's role targets, then tentative and absent players. Never pings.
- */
-export function signupMessages(payload) {
-  const lines = [`**${escapeDiscord(payload.guildName)} · ${escapeDiscord(payload.raidName)}**`]
-  if (payload.cancelled) return chunkLines([...lines, '**This raid has been cancelled.**'])
-  if (payload.start) {
-    const seconds = Math.floor(payload.start / 1000)
-    lines.push(`<t:${seconds}:F> (<t:${seconds}:R>)`)
-  }
-  const signups = payload.signups ?? []
-  const coming = signups.filter((entry) => COMING.has(entry.status))
-  const targets = payload.targets ?? []
-  const counts = SIGNUP_GROUPS.map(
-    ({ role, label }, i) => `${label} ${coming.filter((e) => e.role === role).length}/${targets[i] ?? 0}`,
-  )
-  lines.push(`${counts.join(' · ')} · ${coming.length} signed up`)
-  if (!signups.length) lines.push('', 'No sign-ups yet.')
-
-  const number = new Map(coming.map((entry, i) => [entry, i + 1]))
-  const known = new Set(SIGNUP_GROUPS.map((group) => group.role))
-  const groups = [...SIGNUP_GROUPS, { role: null, icon: '•', label: 'Other' }]
-  for (const { role, icon, label } of groups) {
-    const members = coming.filter((e) => (role ? e.role === role : !known.has(e.role)))
-    if (!members.length) continue
-    lines.push(
-      '',
-      `**${icon} ${label} (${members.length})**`,
-      ...members.map((e) => signupLine(e, number.get(e))),
-    )
-  }
-  for (const [status, label] of [
-    ['tentative', 'Tentative'],
-    ['absent', 'Absent'],
-  ]) {
-    const names = signups.filter((e) => e.status === status).map((e) => escapeDiscord(e.name))
-    if (names.length) lines.push('', `**${label} (${names.length}):** ${names.join(', ')}`)
-  }
-  if (payload.closed) lines.push('', 'Sign-ups are closed.')
-  else if (payload.published) lines.push('', '**Roster published.** Check the roster post for your place.')
-  return chunkLines(lines)
 }
 
 export function reminderMessages(payload) {
@@ -263,9 +205,12 @@ export async function deliverMessages(
       )
     }
   }
-  for (const [index, content] of messages.entries()) {
+  for (const [index, outgoing] of messages.entries()) {
+    // Text, or `{ content, embeds }`. Every message sets both, so an edit replaces either kind.
+    const { content = '', embeds = [] } = typeof outgoing === 'string' ? { content: outgoing } : outgoing
     const body = {
       content,
+      embeds,
       allowed_mentions: {
         parse: [],
         users: ids[index] ? [] : mentionIds.filter((id) => /^\d{17,20}$/.test(id)).slice(0, 100),

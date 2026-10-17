@@ -60,7 +60,7 @@
   }
 
   // The bot (online guilds): added to a server on Discord's own screen, then given a channel from a list.
-  /** @type {{ id: string, name: string, category: string, canPost: boolean }[]} */
+  /** @type {{ id: string, name: string, category: string, canPost: boolean, canEmbed?: boolean }[]} */
   let channels = $state([])
   let channelsError = $state(null)
   let channelsLoading = $state(false)
@@ -114,6 +114,15 @@
       : channels,
   )
 
+  // `canEmbed` is false only when the list says so; an older server function leaves it out.
+  const noCards = (channel) => channel.canPost && channel.canEmbed === false
+  const chosenWithoutCards = $derived(channels.find((c) => c.id === channelId && noCards(c)))
+  function channelLabel(channel) {
+    const where = `#${channel.name}${channel.category ? ` · ${channel.category}` : ''}`
+    if (!channel.canPost) return `${where} (bot can’t post here)`
+    return noCards(channel) ? `${where} (no Embed Links: sign-up cards won’t show)` : where
+  }
+
   const sendTest = () =>
     run(
       () =>
@@ -158,9 +167,7 @@
               <option value="">None (use the webhook below)</option>
               {#each channelOptions as channel (channel.id)}
                 <option value={channel.id} disabled={!channel.canPost && channel.id !== channelId}>
-                  #{channel.name}{channel.category ? ` · ${channel.category}` : ''}{channel.canPost
-                    ? ''
-                    : ' (bot can’t post here)'}
+                  {channelLabel(channel)}
                 </option>
               {/each}
             </select>
@@ -168,9 +175,17 @@
           {#if channelsError}
             <p class="warning">{channelsError}</p>
           {/if}
+          {#if chosenWithoutCards}
+            <p class="warning" role="status">
+              The bot can post rosters in #{chosenWithoutCards.name}, but it can’t show sign-up cards there.
+              In Discord, give the WhenToRaid bot (or its role) Embed Links in that channel, then refresh the
+              channels.
+            </p>
+          {/if}
           <p class="note">
             Missing a channel, or the bot can’t post there? Give the WhenToRaid bot View Channel and Send
-            Messages in that channel’s permissions, then refresh the list.
+            Messages in that channel’s permissions, then refresh the list. Sign-up posts also need Embed
+            Links.
           </p>
           <div class="buttons">
             <button type="button" disabled={busy || channelsLoading} onclick={loadChannels}
