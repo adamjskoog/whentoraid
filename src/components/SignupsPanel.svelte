@@ -50,7 +50,7 @@
     signupLineup(
       signups.rows
         .filter((row) => row.raid_id === raidId)
-        .map((row) => ({ ...row, role: characterOf(row)?.role ?? null })),
+        .map((row) => ({ ...row, role: row.role ?? characterOf(row)?.role ?? null })),
       targets,
     ),
   )
@@ -67,7 +67,8 @@
   function characterLabel(row) {
     const character = characterOf(row)
     if (!character) return ''
-    const build = [character.spec, character.class].filter(Boolean).join(' ')
+    // A spec chosen for this raid at sign-up comes with the row.
+    const build = [row.spec ?? character.spec, character.class].filter(Boolean).join(' ')
     return build ? `${character.name} (${build})` : character.name
   }
   function describe(row) {

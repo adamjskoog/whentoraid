@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { saveCharacter } from './model.js'
+import { characterById, getCheckin, saveCharacter } from './model.js'
 import { plannerContext } from './planning.js'
 import {
   DISCORD_MESSAGE_LIMIT,
@@ -21,6 +21,36 @@ describe('rosterText', () => {
     const rosterLines = text.split('\n').filter((line) => /^(Tank|Healer|DPS): /.test(line))
     expect(rosterLines).toHaveLength(plan.team.length)
     expect(text).toMatch(/^Bench: /m)
+  })
+})
+
+describe('a spec chosen at Discord sign-up', () => {
+  test('is the spec both exports show for that player in this raid', () => {
+    const base = createSeedState()
+    const { plan, players } = plannerContext(base)
+    const [entry] = plan.team
+    const checkin = getCheckin(base, base.currentWeek, entry.memberId)
+    const week = base.weeks[base.currentWeek]
+    const signedAs = { characterId: entry.characterId, spec: 'Signed Spec', role: entry.role }
+    const state = {
+      ...base,
+      weeks: {
+        ...base.weeks,
+        [base.currentWeek]: {
+          ...week,
+          checkins: {
+            ...week.checkins,
+            [entry.memberId]: {
+              ...checkin,
+              raids: { [base.currentRaidId]: { participating: true, declined: [], signedAs } },
+            },
+          },
+        },
+      },
+    }
+    const { class: className } = characterById(state, entry.characterId)
+    expect(rosterText(state, plan, players)).toContain(`Signed Spec ${className}`)
+    expect(rosterDiscord(state, plan, players)).toContain(`Signed Spec ${className}`)
   })
 })
 

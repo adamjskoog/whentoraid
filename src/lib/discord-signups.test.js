@@ -404,6 +404,93 @@ describe('sign-up presses', () => {
     expect(followup.mock.calls[0][1].content).toBe("You're signed up for Raid, arriving late.")
   })
 
+  const DRUID_SPECS = [
+    { spec: 'Balance', role: 'DPS' },
+    { spec: 'Feral Combat', role: 'Tank' },
+    { spec: 'Feral Combat', role: 'DPS' },
+    { spec: 'Restoration', role: 'Healer' },
+  ]
+  const asDruid = (extra = {}) => ({
+    outcome: 'saved',
+    status: 'signed',
+    raidName: 'Raid',
+    character: 'Malfurion',
+    class: 'Druid',
+    spec: 'Restoration',
+    role: 'Healer',
+    specs: DRUID_SPECS,
+    guildId: GUILD,
+    ...extra,
+  })
+  const pickSpec = (value, message = POST) =>
+    interaction(
+      { component_type: 3, custom_id: `wtp:${JOB}:${message}`, values: [value] },
+      { id: EPHEMERAL, author: { id: APP, bot: true } },
+    )
+
+  it('confirms the spec a player signed up as and offers to change it for this raid', () => {
+    const reply = signupReply(asDruid(), { p_delivery_id: JOB, p_message_id: POST })
+    expect(reply.content).toBe("You're signed up for Raid as Malfurion (Restoration Druid, Healer).")
+    const [menu] = reply.components[0].components
+    expect(menu.custom_id).toBe(`wtp:${JOB}:${POST}`)
+    expect(menu.placeholder).toBe('Change spec for this raid')
+    expect(menu.options.map((o) => [o.label, o.value, Boolean(o.default)])).toEqual([
+      ['Balance · DPS', 'Balance|DPS', false],
+      ['Feral Combat · Tank', 'Feral Combat|Tank', false],
+      ['Feral Combat · DPS', 'Feral Combat|DPS', false],
+      ['Restoration · Healer', 'Restoration|Healer', true],
+    ])
+  })
+
+  it('offers no spec menu for absent answers or a sign-up without a character', () => {
+    const args = { p_delivery_id: JOB, p_message_id: POST }
+    expect(signupReply(asDruid({ status: 'absent' }), args).components).toEqual([])
+    expect(signupReply({ outcome: 'saved', status: 'tentative', raidName: 'Raid' }, args).components).toEqual(
+      [],
+    )
+  })
+
+  it('records a spec chosen from the menu against the original post, then refreshes it', async () => {
+    const { response, rpc, followup, refresh } = await run(
+      pickSpec('Feral Combat|Tank'),
+      asDruid({ spec: 'Feral Combat', role: 'Tank' }),
+    )
+    expect(await response.json()).toEqual({ type: 6 })
+    expect(rpc).toHaveBeenCalledWith('signup_spec_from_discord', {
+      p_interaction_id: '623456789012345679',
+      p_discord_id: USER,
+      p_discord_guild_id: SERVER,
+      p_channel_id: CHANNEL,
+      p_message_id: POST,
+      p_delivery_id: JOB,
+      p_spec: 'Feral Combat',
+      p_role: 'Tank',
+    })
+    expect(rpc).toHaveBeenCalledWith('signup_standing', { p_delivery_id: JOB, p_discord_id: USER })
+    const [, reply] = followup.mock.calls[0]
+    expect(reply.content).toMatch(/as Malfurion \(Feral Combat Druid, Tank\)/)
+    expect(reply.components[0].components[0].options.find((o) => o.default).value).toBe('Feral Combat|Tank')
+    expect(refresh).toHaveBeenCalledWith(GUILD)
+  })
+
+  it('rejects malformed spec choices without touching storage', async () => {
+    for (const payload of [
+      pickSpec('Restoration'),
+      pickSpec('Restoration|Support'),
+      pickSpec(`${'x'.repeat(41)}|DPS`),
+      pickSpec('Restoration|Healer', 'not-a-message'),
+    ]) {
+      const { response, rpc } = await run(payload, null)
+      expect(response.status).toBe(400)
+      expect(rpc).not.toHaveBeenCalled()
+    }
+  })
+
+  it('explains why a spec could not be changed', () => {
+    expect(signupReply({ outcome: 'not-signed' }).content).toMatch(/Sign up first/)
+    expect(signupReply({ outcome: 'bad-spec' }).content).toMatch(/can't play that spec/)
+  })
+
   it('still replies when refreshing the post fails', async () => {
     const work = []
     const followup = vi.fn()

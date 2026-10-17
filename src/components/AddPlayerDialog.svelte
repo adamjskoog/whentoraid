@@ -1,6 +1,6 @@
 <script>
   import { app } from '../lib/app.svelte.js'
-  import { charactersOf } from '../lib/model.js'
+  import { raidCharactersOf } from '../lib/model.js'
   import Modal from './Modal.svelte'
 
   let { open, role, benchMembers, onchoose, onclose } = $props()
@@ -14,7 +14,7 @@
       <button onclick={() => onchoose(member.id)}>
         {member.name}
         <small
-          >{charactersOf(app.data, member.id)
+          >{raidCharactersOf(app.data, app.data.currentWeek, member.id)
             .map((c) => c.role)
             .join(' / ')}</small
         >

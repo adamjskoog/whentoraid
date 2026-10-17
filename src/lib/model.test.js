@@ -7,6 +7,7 @@ import {
   getCheckin,
   preferredCharacter,
   pruneOldWeeks,
+  raidCharacter,
   retireCharacter,
   setMainCharacter,
   setPlan,
@@ -16,6 +17,7 @@ import {
   saveSettings,
   setCharacterOffered,
   setCurrentWeek,
+  setRaidParticipation,
   setSlotAvailable,
 } from './model.js'
 import { createSeedState, SEED_WEEK } from './seed.js'
@@ -138,6 +140,56 @@ describe('character management', () => {
     expect(preferredCharacter(state, SEED_WEEK, 'm0').id).toBe('c0b')
     state = setCharacterOffered(state, SEED_WEEK, 'm0', 'c0b', false)
     expect(preferredCharacter(state, SEED_WEEK, 'm0').id).toBe('c0a')
+  })
+})
+
+describe('a spec chosen at Discord sign-up', () => {
+  /** The check-in a Discord sign-up writes: m0 brings c0a to the current raid as a Feral tank. */
+  function signedAs(state, choice) {
+    const checkin = getCheckin(state, SEED_WEEK, 'm0')
+    const raids = {
+      ...checkin.raids,
+      [state.currentRaidId]: { participating: true, declined: ['c0b'], signedAs: choice },
+    }
+    const week = state.weeks[SEED_WEEK]
+    return {
+      ...state,
+      weeks: {
+        ...state.weeks,
+        [SEED_WEEK]: { ...week, checkins: { ...week.checkins, m0: { ...checkin, raids } } },
+      },
+    }
+  }
+  const feral = { characterId: 'c0a', spec: 'Feral Combat', role: 'Tank' }
+  const characterIn = (state, raidId) =>
+    enginePlayers({ ...state, currentRaidId: raidId }, SEED_WEEK)
+      .find((p) => p.id === 'm0')
+      .characters.find((c) => c.id === 'c0a')
+
+  test('the planner treats the character as that spec and role for that raid only', () => {
+    const base = createSeedState()
+    const state = signedAs(base, feral)
+    const raid = base.currentRaidId
+    const other = base.settings.raids.find((r) => r.id !== raid).id
+    expect(characterIn(state, raid)).toMatchObject({ spec: 'Feral Combat', role: 'Tank' })
+    const saved = characterById(base, 'c0a')
+    expect(characterIn(state, other)).toMatchObject({ spec: saved.spec, role: saved.role })
+    expect(raidCharacter(getCheckin(state, SEED_WEEK, 'm0'), saved, raid)).toMatchObject({ role: 'Tank' })
+    expect(characterById(state, 'c0a')).toBe(saved)
+  })
+
+  test('applies only to the character it was chosen for', () => {
+    const state = signedAs(createSeedState(), { ...feral, characterId: 'c0b' })
+    const saved = characterById(state, 'c0a')
+    expect(characterIn(state, state.currentRaidId)).toMatchObject({ spec: saved.spec, role: saved.role })
+  })
+
+  test('survives changing which characters are offered or opting out in the app', () => {
+    let state = signedAs(createSeedState(), feral)
+    state = setCharacterOffered(state, SEED_WEEK, 'm0', 'c0b', true)
+    expect(getCheckin(state, SEED_WEEK, 'm0').raids[state.currentRaidId].signedAs).toEqual(feral)
+    state = setRaidParticipation(state, SEED_WEEK, 'm0', state.currentRaidId, false)
+    expect(getCheckin(state, SEED_WEEK, 'm0').raids[state.currentRaidId].signedAs).toEqual(feral)
   })
 })
 

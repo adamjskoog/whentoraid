@@ -1,7 +1,7 @@
 <script>
   import { app } from '../lib/app.svelte.js'
   import { ROLES, CLASS_NAMES } from '../lib/constants.js'
-  import { characterById, charactersOf, memberById, preferredCharacter } from '../lib/model.js'
+  import { characterById, memberById, preferredCharacter, raidCharactersOf } from '../lib/model.js'
   import { benchGroups } from '../lib/planning.js'
   import PlayerCard from './PlayerCard.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
@@ -35,7 +35,7 @@
   function benchEntries(memberIds) {
     return memberIds
       .map((id) => {
-        const matches = charactersOf(app.data, id).filter(
+        const matches = raidCharactersOf(app.data, app.data.currentWeek, id).filter(
           (c) =>
             (!filterRole || c.role === filterRole) &&
             (!filterClass || c.class === filterClass) &&

@@ -115,6 +115,14 @@ const isAbsentDates = (value, weekIso) =>
     value.length <= 7 &&
     value.every((dateIso) => isIsoDate(dateIso) && dateIso >= weekIso && dateIso <= addDays(weekIso, 6)))
 
+/** A spec chosen for one raid at Discord sign-up (see raidCharacter in model.js). */
+const isSignedAs = (value) =>
+  isObject(value) &&
+  typeof value.characterId === 'string' &&
+  typeof value.spec === 'string' &&
+  value.spec.length <= 40 &&
+  ROLES.includes(value.role)
+
 function isCheckin(checkin, weekIso) {
   return (
     isObject(checkin) &&
@@ -127,7 +135,11 @@ function isCheckin(checkin, weekIso) {
     (checkin.raids === undefined ||
       (isObject(checkin.raids) &&
         Object.entries(checkin.raids).every(
-          ([raidId, choice]) => isSafeId(raidId) && isObject(choice) && isStringList(choice.declined),
+          ([raidId, choice]) =>
+            isSafeId(raidId) &&
+            isObject(choice) &&
+            isStringList(choice.declined) &&
+            (choice.signedAs === undefined || isSignedAs(choice.signedAs)),
         )))
   )
 }

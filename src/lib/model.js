@@ -108,6 +108,29 @@ export function isOffered(checkin, characterId, raidId) {
   )
 }
 
+/**
+ * The character as it plays in one raid: a spec the player chose for that raid at Discord sign-up
+ * (`signedAs` in the check-in) replaces its saved spec and role. The saved character is unchanged.
+ */
+export function raidCharacter(checkin, character, raidId) {
+  const choice = own(checkin.raids, raidId)?.signedAs
+  return choice?.characterId === character.id
+    ? { ...character, spec: choice.spec, role: choice.role }
+    : character
+}
+
+/** A roster entry's character as it plays in that raid (see raidCharacter), or undefined if removed. */
+export function rosterCharacter(state, weekIso, entry, raidId = state.currentRaidId) {
+  const character = characterById(state, entry.characterId)
+  return character && raidCharacter(getCheckin(state, weekIso, entry.memberId), character, raidId)
+}
+
+/** The member's active characters as they play in one raid of a week (see raidCharacter). */
+export function raidCharactersOf(state, weekIso, memberId, raidId = state.currentRaidId) {
+  const checkin = getCheckin(state, weekIso, memberId)
+  return charactersOf(state, memberId).map((c) => raidCharacter(checkin, c, raidId))
+}
+
 /** The shape the scheduling engine works with, for one week. */
 export function enginePlayers(state, weekIso) {
   return state.members.map((member) => {
@@ -118,14 +141,16 @@ export function enginePlayers(state, weekIso) {
       ranges: checkin.ranges,
       tentativeRanges: checkin.tentativeRanges ?? [],
       preferredRanges: checkin.preferredRanges ?? [],
-      characters: charactersOf(state, member.id).map((c) => ({
-        id: c.id,
-        role: c.role,
-        class: c.class,
-        spec: c.spec,
-        main: c.main,
-        offered: isOffered(checkin, c.id, state.currentRaidId),
-      })),
+      characters: charactersOf(state, member.id)
+        .map((c) => raidCharacter(checkin, c, state.currentRaidId))
+        .map((c) => ({
+          id: c.id,
+          role: c.role,
+          class: c.class,
+          spec: c.spec,
+          main: c.main,
+          offered: isOffered(checkin, c.id, state.currentRaidId),
+        })),
     }
   })
 }
@@ -308,7 +333,11 @@ export function setRaidParticipation(state, weekIso, memberId, raidId, participa
     checkedIn: true,
     raids: {
       ...checkin.raids,
-      [raidId]: { declined: checkin.raids?.[raidId]?.declined ?? checkin.declined, participating },
+      [raidId]: {
+        ...checkin.raids?.[raidId],
+        declined: checkin.raids?.[raidId]?.declined ?? checkin.declined,
+        participating,
+      },
     },
   }))
 }

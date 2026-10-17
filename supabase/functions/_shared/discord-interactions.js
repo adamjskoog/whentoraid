@@ -17,6 +17,10 @@ const CUSTOM_ID = new RegExp(`^wtr:${UUID}:(\\d{1,15}):(confirmed|unavailable)$`
 const SIGNUP_BUTTON_ID = new RegExp(`^wts:${UUID}:${SIGNUP_STATUS}$`)
 /** `wtc:<delivery id>:<post message id>:<status>` on the private character menu. */
 const SIGNUP_MENU_ID = new RegExp(`^wtc:${UUID}:(\\d{17,20}):${SIGNUP_STATUS}$`)
+/** `wtp:<delivery id>:<post message id>` on the private "Change spec" menu. */
+const SIGNUP_SPEC_ID = new RegExp(`^wtp:${UUID}:(\\d{17,20})$`)
+/** A "Change spec" option's value: `<spec>|<role>`. */
+const SPEC_VALUE = /^([^|]{1,40})\|(Tank|Healer|DPS)$/
 /** Discord rejects replays older than this; so do we. */
 const MAX_SKEW_MS = 5 * 60 * 1000
 
@@ -130,6 +134,24 @@ export function parseSignup(interaction, applicationId) {
   return null
 }
 
+/** The RPC arguments for a spec chosen from the private "Change spec" menu, or null for anything else. */
+export function parseSpecChange(interaction, applicationId) {
+  const context = signedContext(interaction, applicationId)
+  const { data } = interaction
+  if (!context || data?.component_type !== STRING_SELECT) return null
+  const match = SIGNUP_SPEC_ID.exec(data.custom_id ?? '')
+  const [value] = Array.isArray(data.values) && data.values.length === 1 ? data.values : []
+  const choice = typeof value === 'string' ? SPEC_VALUE.exec(value) : null
+  if (!match || !choice) return null
+  return {
+    ...context,
+    p_message_id: match[2],
+    p_delivery_id: match[1],
+    p_spec: choice[1],
+    p_role: choice[2],
+  }
+}
+
 const OUTCOME_MESSAGES = {
   'not-member': 'Your Discord account is not a member of this guild in WhenToRaid.',
   'not-rostered': 'You are not on this published roster.',
@@ -156,13 +178,16 @@ const SIGNUP_OUTCOMES = {
   closed: 'Sign-ups for this raid are closed: it has started or was cancelled.',
   duplicate: 'That press was already recorded.',
   unknown: 'This post is no longer connected to a WhenToRaid raid.',
+  'not-signed': 'Sign up first, then change your spec.',
+  'bad-spec': "That character can't play that spec. Choose another.",
 }
 
 const BENCH_ROLES = { Tank: 'tank', Healer: 'healer', DPS: 'DPS' }
 
-function savedSignup({ status, raidName, character, afterDeadline, standing }) {
+function savedSignup({ status, raidName, character, class: className, spec, role, afterDeadline, standing }) {
   const raid = raidName || 'this raid'
-  const as = character ? ` as ${character}` : ''
+  const details = [[spec, className].filter(Boolean).join(' '), role].filter(Boolean).join(', ')
+  const as = character ? ` as ${character}${details ? ` (${details})` : ''}` : ''
   const text = {
     signed: `You're signed up for ${raid}${as}.`,
     late: `You're signed up for ${raid}${as}, arriving late.`,
@@ -180,10 +205,33 @@ function savedSignup({ status, raidName, character, afterDeadline, standing }) {
   return parts.join(' ')
 }
 
+/** The "Change spec" menu under a confirmation, bound to the post; the spec in use is preselected. */
+function specMenu(result, args) {
+  if (result.status === 'absent' || !result.character || !result.specs?.length) return []
+  const options = result.specs.slice(0, MAX_OPTIONS).map(({ spec, role }) => ({
+    label: `${spec} · ${role}`.slice(0, MAX_LABEL),
+    value: `${spec}|${role}`,
+    ...(spec === result.spec && role === result.role ? { default: true } : {}),
+  }))
+  return [
+    {
+      type: ACTION_ROW,
+      components: [
+        {
+          type: STRING_SELECT,
+          custom_id: `wtp:${args.p_delivery_id}:${args.p_message_id}`,
+          placeholder: 'Change spec for this raid',
+          options,
+        },
+      ],
+    },
+  ]
+}
+
 /**
- * The private reply to a sign-up press: a confirmation, an explanation, or (`choose`) a menu of the
- * player's characters bound to the post that was pressed. `components` is always set, so choosing
- * from the menu replaces it.
+ * The private reply to a sign-up press: a confirmation (with a "Change spec" menu), an explanation,
+ * or (`choose`) a menu of the player's characters bound to the post that was pressed. `components`
+ * is always set, so choosing from a menu replaces it.
  */
 export function signupReply(result, args = {}) {
   if (result?.outcome === 'choose') {
@@ -216,10 +264,10 @@ export function signupReply(result, args = {}) {
       components: [],
     }
   }
+  const saved = result?.outcome === 'saved' && savedSignup(result)
+  if (saved) return { content: saved, components: specMenu(result, args) }
   const content =
-    (result?.outcome === 'saved' && savedSignup(result)) ||
-    SIGNUP_OUTCOMES[result?.outcome] ||
-    'Your sign-up could not be saved. Try again in a moment.'
+    SIGNUP_OUTCOMES[result?.outcome] || 'Your sign-up could not be saved. Try again in a moment.'
   return { content, components: [] }
 }
 
@@ -276,7 +324,10 @@ export async function handleDiscordInteraction(request, config) {
   if (interaction.type === PING) return reply({ type: PONG })
   if (interaction.type !== COMPONENT) return reply({ error: 'Unsupported interaction.' }, 400)
   const signup = parseSignup(interaction, applicationId)
-  if (signup) return handleSignup(interaction, signup, { ...config, followup, log })
+  if (signup) return handleSignup(interaction, 'signup_from_discord', signup, { ...config, followup, log })
+  const specChange = parseSpecChange(interaction, applicationId)
+  if (specChange)
+    return handleSignup(interaction, 'signup_spec_from_discord', specChange, { ...config, followup, log })
   const args = parseRosterClick(interaction, applicationId)
   if (!args) return reply({ error: 'Unsupported interaction.' }, 400)
 
@@ -299,13 +350,13 @@ export async function handleDiscordInteraction(request, config) {
   return reply({ type: DEFERRED_MESSAGE, data: { flags: EPHEMERAL } })
 }
 
-/** Save a sign-up, answer the player privately, then bring the public post up to date. */
-function handleSignup(interaction, args, { rpc, schedule, followup, refresh, log }) {
+/** Save a sign-up (or its spec), answer the player privately, then bring the public post up to date. */
+function handleSignup(interaction, rpcName, args, { rpc, schedule, followup, refresh, log }) {
   schedule(
     (async () => {
       let result = null
       try {
-        result = await rpc('signup_from_discord', args)
+        result = await rpc(rpcName, args)
       } catch (error) {
         log(`sign-up ${interaction.id} failed: ${error.message}`)
       }
