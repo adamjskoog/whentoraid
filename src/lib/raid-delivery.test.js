@@ -3,8 +3,8 @@ import {
   deliverMessages,
   personalCalendar,
   reminderMessages,
-  rosterMessages,
 } from '../../supabase/functions/_shared/raid-service-core.js'
+import { rosterMessages } from '../../supabase/functions/_shared/roster-post.js'
 
 const HOOK = 'https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz'
 
@@ -30,16 +30,17 @@ describe('raid delivery worker core', () => {
     expect(calendar).toContain('SUMMARY:Raid\\, one')
     expect(calendar).not.toContain('undefined')
   })
-  it('escapes user-controlled Discord mentions and chunks long rosters', () => {
+  it('escapes user-controlled Discord mentions and splits long rosters into whole fields', () => {
     const messages = rosterMessages({
-      guildName: '@everyone',
-      raidName: 'Raid',
+      guildName: 'Guild',
+      raidName: '@everyone',
       start: 1791835200000,
       team: Array.from({ length: 40 }, (_, i) => ({ name: 'N'.repeat(100) + i, role: 'DPS' })),
     })
-    expect(messages.length).toBeGreaterThan(1)
-    expect(messages.every((message) => message.length <= 1900)).toBe(true)
-    expect(messages.join('')).not.toContain('@everyone')
+    const fields = messages.flatMap((message) => message.embeds[0].fields)
+    expect(fields.length).toBeGreaterThan(1)
+    expect(fields.every((field) => field.value.length <= 1024)).toBe(true)
+    expect(messages[0].embeds[0].title).not.toContain('@everyone')
   })
   it('checkpoints each created message and edits known messages on retry', async () => {
     const calls = []
@@ -100,12 +101,14 @@ describe('raid delivery worker core', () => {
     ).rejects.toThrow('Reconnect the Discord channel')
   })
   it('player names cannot become links or break calendar lines', () => {
-    const [message] = rosterMessages({
-      guildName: 'Guild',
-      raidName: 'Raid',
-      start: 1791835200000,
-      team: [{ name: '[Free nitro](https://evil.example) discord.gg/x', role: 'DPS' }],
-    })
+    const message = JSON.stringify(
+      rosterMessages({
+        guildName: 'Guild',
+        raidName: 'Raid',
+        start: 1791835200000,
+        team: [{ name: '[Free nitro](https://evil.example) discord.gg/x', role: 'DPS' }],
+      }),
+    )
     expect(message).not.toContain('](')
     expect(message).not.toContain('https://')
     expect(message).not.toContain('discord.gg')

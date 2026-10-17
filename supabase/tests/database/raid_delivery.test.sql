@@ -1,7 +1,7 @@
 -- Discord delivery outbox, calendar feeds and reminders. Run with: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(32);
+select plan(34);
 -- Counts below cover every delivery; start from none (rolled back with the test), so rows left by
 -- integration runs against the same local database do not interfere.
 delete from public.discord_deliveries;
@@ -101,6 +101,11 @@ select is((select job ->> 'status' from t), 'sending', 'the worker claims the jo
 select is((select job ->> 'webhook_url' from t),
   'https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz0123', 'the claim carries the webhook');
 select is((select jsonb_array_length(job -> 'payload' -> 'team') from t), 2, 'the payload lists the roster');
+select is((select job -> 'payload' -> 'team' from t),
+  '[{"name":"Starfall","player":"Nova","class":"Mage","spec":"Frost","role":"DPS","discordId":"522222222222222222"},
+    {"name":"Mender","player":"Rook","class":"Priest","spec":"Holy","role":"Healer","discordId":"533333333333333333"}]'::jsonb,
+  'the roster card gets each player''s class and spec, in published order');
+select is((select job -> 'payload' -> 'targets' from t), '[2,4,14]'::jsonb, 'the roster card gets the role targets');
 select is(public.claim_discord_delivery((select guild from t)), null, 'one delivery at a time per guild');
 select throws_ok($$ select public.checkpoint_discord_delivery((select (job->>'id')::uuid from t), gen_random_uuid(), '["1300000000000000001"]') $$,
   '40001', null, 'a stale lease cannot record messages');
