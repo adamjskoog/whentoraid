@@ -5,6 +5,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 import { connectedChannelCheck, deliverQueued } from '../_shared/delivery-worker.js'
 import { isGuildOfficer } from '../_shared/officer.js'
+import { createSpecEmojiLoader } from '../_shared/discord-spec-emojis.js'
 
 const URL_ = Deno.env.get('SUPABASE_URL')
 const admin = createClient(URL_, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'), {
@@ -14,6 +15,10 @@ const SCHEDULER_SECRET = Deno.env.get('RAID_DISPATCH_SECRET') ?? ''
 // Bot channels (with response buttons) need the application's bot token and the app's public address.
 const BOT_TOKEN = Deno.env.get('DISCORD_BOT_TOKEN') ?? ''
 const APP_URL = Deno.env.get('WHENTORAID_APP_URL') ?? ''
+const loadSpecEmojis = createSpecEmojiLoader({
+  applicationId: Deno.env.get('DISCORD_APPLICATION_ID') ?? '',
+  botToken: BOT_TOKEN,
+})
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -53,6 +58,7 @@ Deno.serve(async (request) => {
       guildId: scheduler ? null : guildId,
       botToken: BOT_TOKEN,
       appUrl: APP_URL,
+      loadSpecEmojis,
       checkChannel: connectedChannelCheck(admin, BOT_TOKEN),
     })
     return json({ results })

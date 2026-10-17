@@ -74,11 +74,16 @@ describe('raid responses', () => {
     expect(responsesByMember(rows, { ...published, publishedAt: 30, start: 1500, end: 2500 })).toEqual({})
   })
 
-  it('sorts every rostered player into confirmed, unavailable or waiting', () => {
-    const team = [{ memberId: 'm1' }, { memberId: 'm2' }, { memberId: 'm3' }]
-    const summary = responseSummary(team, { m1: { status: 'confirmed' }, m2: { status: 'unavailable' } })
+  it('keeps tentative responses separate from confirmations and missing answers', () => {
+    const team = [{ memberId: 'm1' }, { memberId: 'm2' }, { memberId: 'm3' }, { memberId: 'm4' }]
+    const summary = responseSummary(team, {
+      m1: { status: 'confirmed' },
+      m2: { status: 'unavailable' },
+      m4: { status: 'tentative' },
+    })
     expect(summary.confirmed.map((e) => e.memberId)).toEqual(['m1'])
     expect(summary.unavailable.map((e) => e.memberId)).toEqual(['m2'])
     expect(summary.waiting.map((e) => e.memberId)).toEqual(['m3'])
+    expect(summary.tentative.map((e) => e.memberId)).toEqual(['m4'])
   })
 })

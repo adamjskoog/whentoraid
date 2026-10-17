@@ -71,6 +71,10 @@
     <p class="status confirmed">
       {canRespond ? 'You' : 'This player'} confirmed {canRespond ? 'you’ll' : 'they’ll'} be there.
     </p>
+  {:else if current?.status === 'tentative'}
+    <p class="status warning">
+      {canRespond ? 'You’re' : 'This player is'} tentative. The officers can see this place is uncertain.
+    </p>
   {:else if current?.status === 'unavailable'}
     <p class="status warning">
       {canRespond ? 'You' : 'This player'} told the officers {canRespond ? 'you' : 'they'} can’t make it{current.note
@@ -100,6 +104,9 @@
         <button class="primary" disabled={saving} onclick={() => respond('confirmed')}
           >{saving ? 'Saving…' : 'I’ll be there'}</button
         >
+      {/if}
+      {#if current?.status !== 'tentative'}
+        <button disabled={saving} onclick={() => respond('tentative')}>Tentative</button>
       {/if}
       {#if current?.status !== 'unavailable'}
         <button disabled={saving} onclick={() => (reporting = true)}>I can’t make it</button>

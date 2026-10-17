@@ -247,6 +247,7 @@ describe('raid command cards', () => {
       rosterTargets: [2, 2, 2],
       rosterCounts: [1, 1, 2],
       confirmed: 1,
+      tentative: 1,
       unconfirmed: 2,
       unavailable: 1,
     })
@@ -257,7 +258,7 @@ describe('raid command cards', () => {
       raidCommandReply({ name: 'readiness' }, overview([raid], { officer: true }), APP_URL),
     )
     expect(report).toContain('Published roster needs 1 tank, 1 healer')
-    expect(report).toContain("1 confirmed · 2 awaiting confirmation · 1 can't attend")
+    expect(report).toContain("1 confirmed · 1 tentative · 2 awaiting confirmation · 1 can't attend")
     expect(report).toContain('#/planner/2026-10-12/raid-20')
   })
 

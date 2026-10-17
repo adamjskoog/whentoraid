@@ -1,6 +1,7 @@
 import { escapeDiscord } from './raid-service-core.js'
 import { signupLineup } from './signup-lineup.js'
 import { fieldPages, listFields } from './discord-lists.js'
+import { damageType } from './raid-presentation.js'
 
 /** Include both character and player names whenever they differ, without exposing Discord IDs. */
 export function playerName(entry, { bold = false } = {}) {
@@ -11,7 +12,9 @@ export function playerName(entry, { bold = false } = {}) {
 }
 
 function entryLine(entry) {
-  const details = [entry.role, entry.spec, entry.class].filter(Boolean).map(escapeDiscord).join(' · ')
+  const type = damageType(entry)
+  const role = type && type !== 'Unknown' ? `${type} DPS` : entry.role
+  const details = [role, entry.spec, entry.class].filter(Boolean).map(escapeDiscord).join(' · ')
   const status = { late: 'arriving late', tentative: 'tentative', absent: 'marked absent' }[entry.status]
   return `${playerName(entry, { bold: true })}${details ? ` — ${details}` : ''}${status ? ` · ${status}` : ''}`
 }

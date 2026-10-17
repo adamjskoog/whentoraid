@@ -1,7 +1,7 @@
 -- Availability kinds, raid rules and schedules, and Discord response buttons. Run with: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(31);
+select plan(33);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a2', 'officer2@example.test', '{}'),
@@ -161,6 +161,13 @@ select is(pg_temp.press('622222222222222222', '744444444444444444', '73333333333
   'stale', 'a press on an outdated post is refused');
 select is(pg_temp.press('622222222222222222', '788888888888888888', '733333333333333333', '755555555555555555', 1, 'unavailable') ->> 'outcome',
   'unknown', 'a press from another Discord server is refused');
+
+select is(public.respond_to_discord_raid('766666666666666667', '622222222222222222',
+  '744444444444444444', '733333333333333333', '755555555555555555',
+  (select (job->>'id')::uuid from t), 1, 'tentative') ->> 'outcome',
+  'saved', 'a rostered player can answer tentative from Discord');
+select is((select status from public.raid_responses where guild_id = (select guild from t)), 'tentative',
+  'the Discord tentative response replaces the earlier confirmation');
 
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000b2');
 select throws_ok($$ select pg_temp.press('622222222222222222', '744444444444444444', '733333333333333333', '755555555555555555', 1, 'confirmed') $$,

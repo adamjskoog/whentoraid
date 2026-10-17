@@ -25,7 +25,7 @@ const roster = (overrides = {}) => ({
 })
 
 describe('roster card', () => {
-  it('looks like the signup card: guild, raid, time, role counts and class-marked role columns', () => {
+  it('shows raid details and full-width sections with a separate melee/ranged breakdown', () => {
     const [message] = rosterMessages(roster())
     const [embed] = message.embeds
     expect(embed.author.name).toBe('Raid Test Client')
@@ -39,7 +39,11 @@ describe('roster card', () => {
     const fields = Object.fromEntries(embed.fields.map((field) => [field.name, field.value]))
     expect(fields['🛡️ Tanks (1/1)']).toBe('`1` 🟫 **Tankus** Protection')
     expect(fields['💚 Healers (0/2)']).toBe('None')
-    expect(fields['⚔️ DPS (1/7)']).toBe('`2` 🟨 **Skoogerino** (Skooger) Combat')
+    expect(fields['⚔️ Melee DPS (1)']).toBe('`2` 🟨 **Skoogerino** (Skooger) Combat')
+    expect(fields['🏹 Ranged DPS (0)']).toBe('None')
+    expect(embed.fields.every((field) => field.inline === false)).toBe(true)
+    expect(embed.description).toContain('⚔️ Melee DPS **1** · 🏹 Ranged DPS **0**')
+    expect(embed.footer.text).toContain('Tentative')
   })
 
   it('pings raiders in the message text, since Discord never pings from an embed', () => {
@@ -76,12 +80,29 @@ describe('roster card', () => {
     const team = Array.from({ length: 40 }, (_, i) => ({
       name: `[Free nitro](https://evil.example) ${'N'.repeat(60)}${i}`,
       role: 'DPS',
+      class: 'Priest',
+      spec: 'Shadow',
     }))
-    const messages = rosterMessages(roster({ guildName: '@everyone', raidName: '@here', team }))
+    const messages = rosterMessages(roster({ guildName: '@everyone', raidName: '@here', team }), [], {
+      specEmojis: { wtr_priest_shadow: ID(3) },
+    })
     const text = JSON.stringify(messages)
     expect(text).not.toContain('](')
     expect(messages[0].embeds[0].title).not.toBe('@here')
     for (let i = 0; i < 40; i++) expect(text).toContain(`N${i}`)
+    for (const {
+      embeds: [embed],
+    } of messages) {
+      expect(embed.fields.every(({ value }) => value.length <= 1024)).toBe(true)
+      const size = [
+        embed.title,
+        embed.author.name,
+        embed.description,
+        embed.footer.text,
+        ...embed.fields.flatMap(({ name, value }) => [name, value]),
+      ].reduce((sum, value) => sum + value.length, 0)
+      expect(size).toBeLessThanOrEqual(6000)
+    }
   })
 
   it('still renders payloads queued before targets, classes and specs were added', () => {
@@ -91,6 +112,27 @@ describe('roster card', () => {
       start: START,
       team: [{ name: 'Old', role: 'DPS' }],
     })
-    expect(message.embeds[0].fields.find((field) => field.name.startsWith('⚔️')).value).toBe('`1` ▫️ **Old**')
+    expect(message.embeds[0].fields.find((field) => field.name.startsWith('❔ DPS')).value).toBe(
+      '`1` ▫️ **Old**',
+    )
+  })
+
+  it('places the actual spec icon beside the name, with blank lines between players', () => {
+    const specEmojis = { wtr_priest_shadow: ID(3) }
+    const messages = rosterMessages(
+      roster({
+        team: [
+          { name: 'Skuggerino', class: 'Priest', spec: 'Shadow', role: 'DPS' },
+          { name: 'Second', class: 'Priest', spec: 'Shadow', role: 'DPS' },
+        ],
+      }),
+      [],
+      { specEmojis },
+    )
+    const field = messages[0].embeds[0].fields.find((field) => field.name.startsWith('🏹'))
+    expect(field.value).toBe(
+      `\`1\` <:wtr_priest_shadow:${ID(3)}> **Skuggerino** Shadow\n\n\`2\` <:wtr_priest_shadow:${ID(3)}> **Second** Shadow`,
+    )
+    expect(field.value).not.toContain('⬜')
   })
 })

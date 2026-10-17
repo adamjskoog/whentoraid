@@ -332,7 +332,9 @@ describe('Planner player responses', () => {
     const panel = await screen.findByRole('region', { name: 'Player responses' })
     const waiting = published.team.length - 2
     expect(
-      within(panel).getByText(`1 confirmed · 1 can’t make it · ${waiting} not`, { exact: false }),
+      within(panel).getByText(`1 confirmed · 0 tentative · 1 can’t make it · ${waiting} not`, {
+        exact: false,
+      }),
     ).toBeTruthy()
     expect(within(panel).getByText('Sick')).toBeTruthy()
 
@@ -362,7 +364,7 @@ describe('Planner player responses', () => {
     await openSection('Responses')
     const panel = await screen.findByRole('region', { name: 'Player responses' })
     expect(within(panel).queryByText('Old')).toBeNull()
-    expect(within(panel).getByText(/0 confirmed · 0 can’t make it/)).toBeTruthy()
+    expect(within(panel).getByText(/0 confirmed · 0 tentative · 0 can’t make it/)).toBeTruthy()
   })
 
   test('Refresh picks up a player’s response given after the planner opened', async () => {

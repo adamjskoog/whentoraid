@@ -1,5 +1,5 @@
 /**
- * Signup cards with role columns, bench, tentative and absent players. Complete lists continue
+ * Signup cards with full-width role sections, bench, tentative and absent players. Complete lists continue
  * in additional messages when necessary; names are never omitted. Never pings.
  */
 import { escapeDiscord } from './raid-service-core.js'
@@ -7,6 +7,8 @@ import { signupLineup } from './signup-lineup.js'
 import { signupReadiness, readinessText } from './raid-readiness.js'
 import { listFields, fieldPages } from './discord-lists.js'
 import { playerName } from './discord-roster.js'
+import { ROLE_HEADINGS, displayRoles, damageSummary } from './raid-presentation.js'
+import { specEmojiName } from './spec-icons.js'
 
 /** Class colours from src/lib/constants.js, as the nearest emoji square or heart. */
 const CLASS_MARKS = {
@@ -20,7 +22,6 @@ const CLASS_MARKS = {
   Warlock: '🟪',
   Druid: '🟧',
 }
-export const ROLE_HEADINGS = { Tank: '🛡️ Tanks', Healer: '💚 Healers', DPS: '⚔️ DPS' }
 const COLORS = { open: 0x57f287, published: 0x5865f2, closed: 0x99aab5, cancelled: 0xed4245 }
 const FOOTERS = {
   open: 'Press a button to answer · Sign-ups close when the raid starts',
@@ -29,8 +30,14 @@ const FOOTERS = {
   cancelled: 'This raid has been cancelled',
 }
 
-export function entryLine(entry, { withRole = false } = {}) {
-  const mark = CLASS_MARKS[entry.class] ?? '▫️'
+export function entryLine(entry, { withRole = false, specEmojis = {} } = {}) {
+  const emojiName = specEmojiName(entry.class, entry.spec)
+  const emojiId = emojiName && specEmojis[emojiName]
+  const mark = /^\d{17,20}$/.test(emojiId ?? '')
+    ? `<:${emojiName}:${emojiId}>`
+    : Object.hasOwn(CLASS_MARKS, entry.class)
+      ? CLASS_MARKS[entry.class]
+      : '▫️'
   const build = withRole ? [entry.spec, entry.role].filter(Boolean).join(' ') : (entry.spec ?? '')
   const late = entry.status === 'late' ? ' · late' : ''
   const detail = build ? ` ${escapeDiscord(build)}` : ''
@@ -54,6 +61,7 @@ function describe(payload, lineup, status) {
       `${ROLE_HEADINGS[role]} **${members.length}**${target ? `/${target}` : ''}`,
   )
   lines.push(`${counts.join(' · ')} · **${lineup.coming}** signed up`)
+  lines.push(damageSummary(lineup.roles))
   if (status === 'open' || status === 'published')
     lines.push(
       '',
@@ -67,30 +75,31 @@ function describe(payload, lineup, status) {
   return lines.join('\n')
 }
 
-function lineupFields(lineup) {
+function lineupFields(lineup, specEmojis) {
   const fields = []
   const add = (name, items, options = {}) => {
     fields.push(...listFields(name, items, options))
   }
   if (lineup.coming) {
-    for (const { role, target, members } of lineup.roles) {
+    for (const { role, target, members } of displayRoles(lineup.roles)) {
       const count = `${members.length}${target ? `/${target}` : ''}`
       add(
         `${ROLE_HEADINGS[role]} (${count})`,
-        members.map((entry) => entryLine(entry)),
-        { inline: true },
+        members.map((entry) => entryLine(entry, { specEmojis })),
+        { joiner: '\n\n' },
       )
     }
   }
   if (lineup.other.length)
     add(
       `❔ No role (${lineup.other.length})`,
-      lineup.other.map((entry) => entryLine(entry)),
-      { inline: true },
+      lineup.other.map((entry) => entryLine(entry, { specEmojis })),
+      { joiner: '\n\n' },
     )
   add(
     `🪑 Bench (${lineup.bench.length})`,
-    lineup.bench.map((entry) => entryLine(entry, { withRole: true })),
+    lineup.bench.map((entry) => entryLine(entry, { withRole: true, specEmojis })),
+    { joiner: '\n\n' },
   )
   for (const [list, label] of [
     [lineup.tentative, '❔ Tentative'],
@@ -109,7 +118,7 @@ function lineupFields(lineup) {
  * One card per message. The delivery worker edits continuations in place, removes surplus pages
  * when lists shrink, and keeps signup buttons on the last message. No player is summarized away.
  */
-export function signupMessages(payload) {
+export function signupMessages(payload, { specEmojis = {} } = {}) {
   const status = statusOf(payload)
   const embed = {
     // Discord shows the author line as plain text (no markdown, no mentions), so it is not escaped.
@@ -126,7 +135,7 @@ export function signupMessages(payload) {
   if (status === 'cancelled')
     return [{ content: '', embeds: [{ ...embed, description: '**This raid has been cancelled.**' }] }]
   const lineup = signupLineup(payload.signups ?? [], payload.targets ?? [])
-  const pages = fieldPages(lineupFields(lineup))
+  const pages = fieldPages(lineupFields(lineup, specEmojis))
   return pages.map((fields, index) => ({
     content: '',
     embeds: [

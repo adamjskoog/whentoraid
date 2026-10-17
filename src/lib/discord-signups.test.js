@@ -179,10 +179,10 @@ describe('sign-up posts', () => {
     expect(fieldNamed(embed, '🛡️ Tanks')).toMatchObject({
       name: '🛡️ Tanks (1/2)',
       value: '`1` 🟫 **Thrall** Protection',
-      inline: true,
+      inline: false,
     })
     expect(fieldNamed(embed, '💚 Healers').value).toBe('`2` ⬜ **Anduin** Holy')
-    expect(fieldNamed(embed, '⚔️ DPS').value).toBe('`3` 🟫 **Varian** Fury · late')
+    expect(fieldNamed(embed, '⚔️ Melee DPS').value).toBe('`3` 🟫 **Varian** Fury · late')
     expect(fieldNamed(embed, '❔ Tentative').value).toBe('Jaina')
     expect(fieldNamed(embed, '❌ Absent').value).toBe('Sylvanas')
     expect(embed.color).toBe(0x57f287)
@@ -555,6 +555,7 @@ describe('the delivery worker', () => {
       claimed(),
       payload({ signups: [signup('Thrall', 'Tank', 'signed')] }),
     )
+    const loadSpecEmojis = vi.fn(async () => ({ wtr_warrior_protection: APP }))
     const results = await deliverQueued({
       rpc,
       guildId: GUILD,
@@ -562,6 +563,7 @@ describe('the delivery worker', () => {
       appUrl: 'https://whentoraid.example/',
       checkChannel: vi.fn(),
       fetchFn,
+      loadSpecEmojis,
     })
     expect(results).toEqual([{ id: JOB, status: 'sent' }])
     const [url, init] = fetchFn.mock.calls[0]
@@ -569,12 +571,48 @@ describe('the delivery worker', () => {
     const body = JSON.parse(init.body)
     expect(body.content).toBe('')
     expect(JSON.stringify(body.embeds)).toContain('Thrall')
+    expect(JSON.stringify(body.embeds)).toContain(`<:wtr_warrior_protection:${APP}>`)
+    expect(loadSpecEmojis).toHaveBeenCalledTimes(1)
     expect(body.components[0].components[0].custom_id).toBe(`wts:${JOB}:signed`)
     expect(calls.find(([name]) => name === 'finish_discord_delivery')[1]).toMatchObject({
       p_id: JOB,
       p_version: 3,
       p_error: null,
     })
+  })
+
+  it('delivers roster spec icons together with all four response controls', async () => {
+    const { rpc, fetchFn } = worker(
+      claimed({
+        kind: 'roster',
+        payload: {
+          guildName: 'Guild',
+          raidName: 'Raid',
+          start: START,
+          targets: [2, 4, 14],
+          team: [{ name: 'Skuggerino', class: 'Priest', spec: 'Shadow', role: 'DPS' }],
+        },
+      }),
+    )
+    const results = await deliverQueued({
+      rpc,
+      guildId: GUILD,
+      botToken: 'bot-secret',
+      appUrl: 'https://whentoraid.example/',
+      checkChannel: vi.fn(),
+      fetchFn,
+      loadSpecEmojis: async () => ({ wtr_priest_shadow: APP }),
+    })
+    expect(results).toEqual([{ id: JOB, status: 'sent' }])
+    const body = JSON.parse(fetchFn.mock.calls[0][1].body)
+    expect(JSON.stringify(body.embeds)).toContain(`<:wtr_priest_shadow:${APP}> **Skuggerino**`)
+    expect(body.components[0].components.map(({ label }) => label)).toEqual([
+      'Confirm',
+      'Tentative',
+      "Can't attend",
+      'View roster',
+    ])
+    expect(body.allowed_mentions).toEqual({ parse: [], users: [] })
   })
 
   it('does not post a sign-up for a raid that already started', async () => {

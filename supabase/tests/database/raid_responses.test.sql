@@ -1,7 +1,7 @@
 -- Players confirm or report a problem with a published roster. Run with: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(17);
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'officer@example.test', '{}'),
@@ -53,6 +53,10 @@ grant select on revision_before to authenticated;
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000b1');
 select lives_ok($$ select public.save_raid_response((select id from g), '2026-10-05', 'raid-20', '3000', 'confirmed') $$,
   'a rostered player confirms their place');
+select lives_ok($$ select public.save_raid_response((select id from g), '2026-10-05', 'raid-20', '3000', 'tentative') $$,
+  'a rostered player can change their response to tentative');
+select is((select status from public.get_raid_responses((select id from g), '2026-10-05', 'raid-20')),
+  'tentative', 'tentative persists as its own response status');
 select lives_ok($$ select public.save_raid_response((select id from g), '2026-10-05', 'raid-20', '3000', 'unavailable', ' Sick ') $$,
   'and can change it to a late problem');
 select throws_ok($$ select public.save_raid_response((select id from g), '2026-10-05', 'raid-20', '2999', 'confirmed') $$,

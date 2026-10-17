@@ -77,32 +77,43 @@ describe('signed Discord responses', () => {
     ).toBe(401)
     expect(schedule).not.toHaveBeenCalled()
   })
-  it('defers privately, uses only signed identity and message coordinates, then acknowledges the stored result', async () => {
-    const work = []
-    const rpc = vi.fn().mockResolvedValue({ outcome: 'saved', status: 'confirmed' })
-    const followup = vi.fn()
-    const response = await handleDiscordInteraction(await signed(click()), {
-      publicKey,
-      applicationId: APP,
-      now: NOW,
-      rpc,
-      followup,
-      schedule: (promise) => work.push(promise),
-    })
-    expect(await response.json()).toEqual({ type: 5, data: { flags: 64 } })
-    await Promise.all(work)
-    expect(rpc).toHaveBeenCalledWith('respond_to_discord_raid', {
-      p_interaction_id: '623456789012345678',
-      p_discord_id: USER,
-      p_discord_guild_id: SERVER,
-      p_channel_id: CHANNEL,
-      p_message_id: MESSAGE,
-      p_delivery_id: JOB,
-      p_version: 2,
-      p_status: 'confirmed',
-    })
-    expect(followup).toHaveBeenCalledWith(expect.any(Object), expect.stringMatching(/confirmed/i))
-  })
+  it.each(['confirmed', 'tentative', 'unavailable'])(
+    'saves %s with signed identity and acknowledges it privately',
+    async (status) => {
+      const work = []
+      const rpc = vi.fn().mockResolvedValue({ outcome: 'saved', status })
+      const followup = vi.fn()
+      const response = await handleDiscordInteraction(
+        await signed(click({ data: { component_type: 2, custom_id: `wtr:${JOB}:2:${status}` } })),
+        {
+          publicKey,
+          applicationId: APP,
+          now: NOW,
+          rpc,
+          followup,
+          schedule: (promise) => work.push(promise),
+        },
+      )
+      expect(await response.json()).toEqual({ type: 5, data: { flags: 64 } })
+      await Promise.all(work)
+      expect(rpc).toHaveBeenCalledWith('respond_to_discord_raid', {
+        p_interaction_id: '623456789012345678',
+        p_discord_id: USER,
+        p_discord_guild_id: SERVER,
+        p_channel_id: CHANNEL,
+        p_message_id: MESSAGE,
+        p_delivery_id: JOB,
+        p_version: 2,
+        p_status: status,
+      })
+      expect(followup).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.stringMatching(
+          { confirmed: /confirmed/i, tentative: /tentative.*unsure/i, unavailable: /can't attend/i }[status],
+        ),
+      )
+    },
+  )
   it('rejects DM, non-bot messages and malformed components without touching storage', async () => {
     const rpc = vi.fn(),
       schedule = vi.fn()
@@ -129,10 +140,16 @@ describe('application-authored roster posts', () => {
   const job = { id: JOB, version: 2, guild_id: JOB, week: '2026-10-12', raid_id: 'raid-20', payload: {} }
   it('binds response buttons to delivery version and adds a guild-aware published roster link', () => {
     const [row] = rosterComponents(job, 'https://whentoraid.example/app/')
-    expect(row.components.map((c) => c.label)).toEqual(['Confirm', "Can't attend", 'View roster'])
+    expect(row.components.map((c) => c.label)).toEqual([
+      'Confirm',
+      'Tentative',
+      "Can't attend",
+      'View roster',
+    ])
+    expect(row.components[1]).toMatchObject({ style: 2, custom_id: `wtr:${JOB}:2:tentative` })
     expect(row.components[0].custom_id).toBe(`wtr:${JOB}:2:confirmed`)
     expect(row.components[0].custom_id.length).toBeLessThanOrEqual(100)
-    expect(row.components[2].url).toBe(
+    expect(row.components[3].url).toBe(
       `https://whentoraid.example/app/?guild=${JOB}#/published/2026-10-12/raid-20`,
     )
     expect(rosterComponents({ ...job, payload: { cancelled: true } }, 'https://whentoraid.example')).toEqual(
@@ -165,7 +182,7 @@ describe('application-authored roster posts', () => {
     })
     expect(calls[0].url).toBe(`https://discord.com/api/v10/channels/${CHANNEL}/messages`)
     expect(calls[0].headers.Authorization).toBe('Bot server-secret')
-    expect(JSON.parse(calls[0].body).components[0].components).toHaveLength(3)
+    expect(JSON.parse(calls[0].body).components[0].components).toHaveLength(4)
     expect(calls[1].method).toBe('PATCH')
     expect(JSON.parse(calls[1].body)).toMatchObject({ components: [], allowed_mentions: { users: [] } })
     expect(checkpoint).toHaveBeenCalledWith([MESSAGE])

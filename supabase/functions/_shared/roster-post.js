@@ -1,10 +1,11 @@
 /**
- * Published roster cards in the signup card's style: role columns with class marks and specs.
+ * Published roster cards with full-width role sections and talent spec icons.
  * Pings go in the message text, because Discord never pings from an embed, and edits never ping
  * again (see deliverMessages). Complete lists continue in additional messages; no name is dropped.
  */
 import { escapeDiscord } from './raid-service-core.js'
-import { ROLE_HEADINGS, entryLine } from './signup-post.js'
+import { entryLine } from './signup-post.js'
+import { ROLE_HEADINGS, displayRoles, damageSummary } from './raid-presentation.js'
 import { SIGNUP_ROLES } from './signup-lineup.js'
 import { roleNeeds } from './raid-readiness.js'
 import { listFields, fieldPages } from './discord-lists.js'
@@ -14,7 +15,7 @@ const MAX_MENTIONS = 100
 const MAX_CONTENT = 2000
 const COLORS = { published: 0x5865f2, withdrawn: 0x99aab5, cancelled: 0xed4245 }
 const FOOTERS = {
-  published: 'Published roster · Press Confirm, or Can’t attend so officers can replace you',
+  published: 'Published roster · Choose Confirm, Tentative, or Can’t attend',
   withdrawn: 'Roster withdrawn',
   cancelled: 'This raid has been cancelled',
 }
@@ -33,47 +34,50 @@ function lineup(payload) {
   const team = payload.team ?? []
   let count = 0
   const numbered = (entry) => ({ ...entry, number: ++count })
-  const roles = SIGNUP_ROLES.map((role, i) => ({
+  const budgetRoles = SIGNUP_ROLES.map((role, i) => ({
     role,
     target: Math.max(0, Math.floor(Number(payload.targets?.[i]) || 0)),
-    members: team.filter((entry) => entry.role === role).map(numbered),
+    members: team.filter((entry) => entry.role === role),
   }))
+  const roles = displayRoles(budgetRoles).map((group) => ({ ...group, members: group.members.map(numbered) }))
   const other = team.filter((entry) => !SIGNUP_ROLES.includes(entry.role)).map(numbered)
-  return { roles, other, total: count }
+  return { roles, budgetRoles, other, total: count }
 }
 
-function describe(payload, { roles, total }) {
+function describe(payload, { budgetRoles, total }) {
   const seconds = Math.floor(payload.start / 1000)
-  const counts = roles.map(
+  const counts = budgetRoles.map(
     ({ role, target, members }) =>
       `${ROLE_HEADINGS[role]} **${members.length}**${target ? `/${target}` : ''}`,
   )
   const needed = roleNeeds(
-    roles.map(({ role, target, members }) => ({ role, missing: Math.max(0, target - members.length) })),
+    budgetRoles.map(({ role, target, members }) => ({ role, missing: Math.max(0, target - members.length) })),
   )
   return [
     `🗓️ <t:${seconds}:F>`,
     `⏰ Starts <t:${seconds}:R>`,
     '',
     `${counts.join(' · ')} · **${total}** rostered`,
+    damageSummary(budgetRoles),
+    '',
     needed ? `**Still needed:** ${needed}` : 'All role targets filled.',
   ].join('\n')
 }
 
-function rosterFields({ roles, other }) {
+function rosterFields({ roles, other }, specEmojis) {
   const fields = roles.flatMap(({ role, target, members }) =>
     listFields(
       `${ROLE_HEADINGS[role]} (${members.length}${target ? `/${target}` : ''})`,
-      members.map((entry) => entryLine(entry)),
-      { inline: true },
+      members.map((entry) => entryLine(entry, { specEmojis })),
+      { joiner: '\n\n' },
     ),
   )
   if (other.length)
     fields.push(
       ...listFields(
         `❔ No role (${other.length})`,
-        other.map((entry) => entryLine(entry)),
-        { inline: true },
+        other.map((entry) => entryLine(entry, { specEmojis })),
+        { joiner: '\n\n' },
       ),
     )
   return fields
@@ -92,7 +96,7 @@ function pingLine(mentionIds) {
 }
 
 /** `mentionIds`: players to ping (only on the first post; edits never ping again). */
-export function rosterMessages(payload, mentionIds = []) {
+export function rosterMessages(payload, mentionIds = [], { specEmojis = {} } = {}) {
   const status = statusOf(payload)
   const embed = {
     // Discord shows the author line as plain text (no markdown, no mentions), so it is not escaped.
@@ -108,7 +112,7 @@ export function rosterMessages(payload, mentionIds = []) {
   }
   if (status !== 'published') return [{ content: '', embeds: [{ ...embed, description: CLOSED[status] }] }]
   const groups = lineup(payload)
-  const pages = fieldPages(rosterFields(groups))
+  const pages = fieldPages(rosterFields(groups, specEmojis))
   return pages.map((fields, index) => ({
     content: index ? '' : pingLine(mentionIds),
     embeds: [
