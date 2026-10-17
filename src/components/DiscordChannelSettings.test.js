@@ -15,6 +15,7 @@ vi.mock('../lib/remote/api.js', () => ({
   recordDiscordPost: vi.fn(async () => {}),
 }))
 vi.mock('../lib/discord-connect.js', () => ({
+  enableDiscordCommands: vi.fn(async () => ({ command: '/raid' })),
   hasDiscordReturn: vi.fn(() => false),
   finishDiscordConnect: vi.fn(async () => null),
   startDiscordConnect: vi.fn(async () => {}),
@@ -54,6 +55,29 @@ async function show(row) {
 }
 
 describe('connecting the WhenToRaid bot', () => {
+  test('officers can enable the command hub for the current guild', async () => {
+    await show(stored({ serverId: SERVER, serverName: 'After Hours' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Enable / update raid commands' }))
+    expect(connect.enableDiscordCommands).toHaveBeenCalledWith({}, 'g1')
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        'Discord commands enabled. Type /raid in your server to get started.',
+      ),
+    )
+    expect(screen.getByText('/raid mine')).toBeTruthy()
+  })
+
+  test('a failed command setup stays retryable and explains the failure', async () => {
+    connect.enableDiscordCommands.mockRejectedValueOnce(
+      new Error('Discord is rate limiting command setup. Try again shortly.'),
+    )
+    await show(stored({ serverId: SERVER, serverName: 'After Hours' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Enable / update raid commands' }))
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith('Discord is rate limiting command setup. Try again shortly.'),
+    )
+    expect(screen.getByRole('button', { name: 'Enable / update raid commands' }).disabled).toBe(false)
+  })
   test('before the bot is added, one button opens Discord for this guild', async () => {
     await show(null)
     await fireEvent.click(screen.getByRole('button', { name: 'Add WhenToRaid to Discord' }))

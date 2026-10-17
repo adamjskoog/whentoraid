@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import { discordChannel, loadDiscordChannel, saveDiscordChannel } from '../lib/discord-channel.svelte.js'
   import {
+    enableDiscordCommands,
     finishDiscordConnect,
     hasDiscordReturn,
     listDiscordChannels,
@@ -106,6 +107,11 @@
   })
 
   const connect = () => run(() => startDiscordConnect(supabase, remote.guildId), 'Opening Discord…')
+  const enableCommands = () =>
+    run(
+      () => enableDiscordCommands(supabase, remote.guildId),
+      'Discord commands enabled. Type /raid in your server to get started.',
+    )
 
   /** The channels to choose from, keeping a saved channel the list no longer shows. */
   const channelOptions = $derived(
@@ -188,10 +194,34 @@
             Links.
           </p>
           <div class="buttons">
+            <button type="button" disabled={busy} onclick={enableCommands}
+              >Enable / update raid commands</button
+            >
             <button type="button" disabled={busy || channelsLoading} onclick={loadChannels}
               >Refresh channels</button
             >
             <button type="button" disabled={busy} onclick={connect}>Add to a different server</button>
+          </div>
+          <div class="command-guide">
+            <h4>Your raid hub in Discord</h4>
+            <p>
+              Find the next raid, check your place, and see what the team still needs. Command replies are
+              visible only to the person asking.
+            </p>
+            <dl>
+              <dt><code>/raid next</code></dt>
+              <dd>Next raid, role shortages, and your signup.</dd>
+              <dt><code>/raid upcoming</code></dt>
+              <dd>Four weeks of raids, with links to signup posts.</dd>
+              <dt><code>/raid mine</code></dt>
+              <dd>Your signups, bench places, and confirmations.</dd>
+              <dt><code>/raid roster</code></dt>
+              <dd>Every name on the roster, bench, tentative list, and absence list.</dd>
+              <dt><code>/raid readiness</code></dt>
+              <dd>Officer report on open roles and missing confirmations.</dd>
+              <dt><code>/raid help</code></dt>
+              <dd>A quick guide for your players.</dd>
+            </dl>
           </div>
         {:else}
           <p>
@@ -252,6 +282,29 @@
 {/if}
 
 <style>
+  .command-guide {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+  }
+  .command-guide dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0;
+  }
+  .command-guide dd {
+    margin: 0;
+  }
+  @media (max-width: 600px) {
+    .command-guide dl {
+      grid-template-columns: 1fr;
+    }
+    .command-guide dd {
+      margin-bottom: 0.5rem;
+    }
+  }
   .bot-connect {
     margin-bottom: 1rem;
     padding-bottom: 1rem;

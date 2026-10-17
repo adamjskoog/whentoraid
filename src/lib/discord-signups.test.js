@@ -206,7 +206,11 @@ describe('sign-up posts', () => {
 
   it('says when there are no sign-ups yet, and when the roster is published, cancelled or closed', () => {
     expect(card(payload()).description).toContain('No sign-ups yet.')
-    expect(card(payload()).fields).toEqual([])
+    expect(card(payload()).fields.map((field) => field.name)).toEqual([
+      '🪑 Bench (0)',
+      '❔ Tentative (0)',
+      '❌ Absent (0)',
+    ])
     const published = card(payload({ published: true }))
     expect(published.description).toContain('Roster published')
     expect(published.color).toBe(0x5865f2)
@@ -240,14 +244,21 @@ describe('sign-up posts', () => {
         },
       ),
     )
-    const embed = card(payload({ targets: [2, 4, 14], signups: many }))
-    expect(embed.fields.length).toBeLessThanOrEqual(25)
-    for (const field of embed.fields) {
-      expect(field.value.length).toBeLessThanOrEqual(1024)
-      expect(field.value.length).toBeGreaterThan(0)
+    const messages = signupMessages(payload({ targets: [2, 4, 14], signups: many }))
+    expect(messages.length).toBeGreaterThan(1)
+    for (const {
+      embeds: [embed],
+    } of messages) {
+      expect(embed.fields.length).toBeLessThanOrEqual(25)
+      for (const field of embed.fields) {
+        expect(field.value.length).toBeLessThanOrEqual(1024)
+        expect(field.value.length).toBeGreaterThan(0)
+      }
+      expect(embedSize(embed)).toBeLessThanOrEqual(6000)
     }
-    expect(embedSize(embed)).toBeLessThanOrEqual(6000)
-    expect(JSON.stringify(embed.fields)).toMatch(/…and \d+ more/)
+    const allText = JSON.stringify(messages)
+    for (const player of many) expect(allText).toContain(player.name)
+    expect(allText).not.toMatch(/…and \d+ more/)
   })
 
   it('offers four sign-up buttons and a link, and none once the raid is closed or cancelled', () => {

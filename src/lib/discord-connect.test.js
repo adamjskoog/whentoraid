@@ -207,6 +207,21 @@ describe('the bot only posts in the connected server', () => {
 })
 
 describe('officer requests', () => {
+  test('command registration uses the connected server, ignoring a browser-supplied server ID', async () => {
+    const fetchFn = discordApi({ [`POST /applications/${BOT}/guilds/${SERVER}/commands`]: { id: '1' } })
+    const settings = config({ fetchFn })
+    expect(
+      await handleConnect(
+        { action: 'commands', guildId: GUILD_ID, serverId: '999999999999999999' },
+        settings,
+      ),
+    ).toEqual({ command: '/raid' })
+    expect(settings.linkedServer).toHaveBeenCalledWith(GUILD_ID)
+    expect(fetchFn.mock.calls[0][0]).toContain(`/guilds/${SERVER}/commands`)
+    await expect(
+      handleConnect({ action: 'commands', guildId: GUILD_ID }, config({ linkedServer: async () => null })),
+    ).rejects.toMatchObject({ status: 409 })
+  })
   test('start returns Discord’s add-bot screen with the bot’s permissions and the state', async () => {
     const { url } = await handleConnect(
       { action: 'start', guildId: GUILD_ID, redirectUri: REDIRECT, state: 'a'.repeat(32) },
