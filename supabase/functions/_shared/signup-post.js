@@ -1,9 +1,12 @@
 /**
- * The Raid-Helper-style sign-up card: one Discord embed with the raid time, a column per role
- * numbered in sign-up order, the bench, and tentative and absent players. Never pings.
+ * Signup cards with role columns, bench, tentative and absent players. Complete lists continue
+ * in additional messages when necessary; names are never omitted. Never pings.
  */
 import { escapeDiscord } from './raid-service-core.js'
 import { signupLineup } from './signup-lineup.js'
+import { signupReadiness, readinessText } from './raid-readiness.js'
+import { listFields, fieldPages } from './discord-lists.js'
+import { playerName } from './discord-roster.js'
 
 /** Class colours from src/lib/constants.js, as the nearest emoji square or heart. */
 const CLASS_MARKS = {
@@ -26,47 +29,12 @@ const FOOTERS = {
   cancelled: 'This raid has been cancelled',
 }
 
-/** Discord's embed limits, leaving room for the title, description and footer within 6000. */
-const FIELD_LIMIT = 1024
-const MAX_FIELDS = 25
-const FIELDS_BUDGET = 5000
-
 function entryLine(entry, { withRole = false } = {}) {
   const mark = CLASS_MARKS[entry.class] ?? '▫️'
   const build = withRole ? [entry.spec, entry.role].filter(Boolean).join(' ') : (entry.spec ?? '')
   const late = entry.status === 'late' ? ' · late' : ''
   const detail = build ? ` ${escapeDiscord(build)}` : ''
-  return `\`${entry.number}\` ${mark} **${escapeDiscord(entry.name)}**${detail}${late}`
-}
-
-/**
- * Fields for one list: each value within Discord's field limit (continuations get an invisible
- * name), all of them within `budget` characters. What does not fit becomes "…and N more".
- */
-function listFields(name, items, { inline = false, joiner = '\n', budget }) {
-  const values = []
-  let value = ''
-  let used = name.length
-  for (const [i, item] of items.entries()) {
-    const more = `…and ${items.length - i} more`
-    if (used + joiner.length + item.length + joiner.length + more.length > budget) {
-      // The summary must never be cut short, so it starts a new field when this one is full.
-      if (value && value.length + joiner.length + more.length > FIELD_LIMIT) {
-        values.push(value)
-        value = ''
-      }
-      value += (value ? joiner : '') + more
-      break
-    }
-    if (value && value.length + joiner.length + item.length > FIELD_LIMIT) {
-      values.push(value)
-      value = ''
-    }
-    used += (value ? joiner.length : 1) + item.length
-    value += (value ? joiner : '') + item
-  }
-  values.push(value || '—')
-  return values.map((text, i) => ({ name: i ? '​' : name, value: text.slice(0, FIELD_LIMIT), inline }))
+  return `\`${entry.number}\` ${mark} ${playerName(entry, { bold: true })}${detail}${late}`
 }
 
 function statusOf(payload) {
@@ -86,20 +54,23 @@ function describe(payload, lineup, status) {
       `${ROLE_HEADINGS[role]} **${members.length}**${target ? `/${target}` : ''}`,
   )
   lines.push(`${counts.join(' · ')} · **${lineup.coming}** signed up`)
+  if (status === 'open' || status === 'published')
+    lines.push(
+      '',
+      `**Role check:** ${readinessText(signupReadiness(payload.signups ?? [], payload.targets ?? []))}`,
+    )
   if (lineup.bench.length) lines.push(`🪑 ${lineup.bench.length} on the bench`)
   if (!lineup.coming && !lineup.tentative.length && !lineup.absent.length) lines.push('', 'No sign-ups yet.')
   if (status === 'published') lines.push('', '**Roster published.** Check the roster post for your place.')
+  else if (status === 'open')
+    lines.push('', 'Signup places are provisional. Officers choose the final roster.')
   return lines.join('\n')
 }
 
 function lineupFields(lineup) {
-  let budget = FIELDS_BUDGET
   const fields = []
   const add = (name, items, options = {}) => {
-    if (budget <= name.length || fields.length >= MAX_FIELDS) return
-    const next = listFields(name, items, { ...options, budget }).slice(0, MAX_FIELDS - fields.length)
-    budget -= next.reduce((sum, field) => sum + field.name.length + field.value.length, 0)
-    fields.push(...next)
+    fields.push(...listFields(name, items, options))
   }
   if (lineup.coming) {
     for (const { role, target, members } of lineup.roles) {
@@ -117,28 +88,26 @@ function lineupFields(lineup) {
       lineup.other.map((entry) => entryLine(entry)),
       { inline: true },
     )
-  if (lineup.bench.length)
-    add(
-      `🪑 Bench (${lineup.bench.length})`,
-      lineup.bench.map((entry) => entryLine(entry, { withRole: true })),
-    )
+  add(
+    `🪑 Bench (${lineup.bench.length})`,
+    lineup.bench.map((entry) => entryLine(entry, { withRole: true })),
+  )
   for (const [list, label] of [
     [lineup.tentative, '❔ Tentative'],
     [lineup.absent, '❌ Absent'],
   ]) {
-    if (list.length)
-      add(
-        `${label} (${list.length})`,
-        list.map((entry) => escapeDiscord(entry.name)),
-        { joiner: ', ' },
-      )
+    add(
+      `${label} (${list.length})`,
+      list.map((entry) => playerName(entry)),
+      { joiner: ', ' },
+    )
   }
   return fields
 }
 
 /**
- * The sign-up card as one message, `{ content, embeds }`. Content is empty so an edit also clears
- * the text of a post made before cards existed.
+ * One card per message. The delivery worker edits continuations in place, removes surplus pages
+ * when lists shrink, and keeps signup buttons on the last message. No player is summarized away.
  */
 export function signupMessages(payload) {
   const status = statusOf(payload)
@@ -157,6 +126,20 @@ export function signupMessages(payload) {
   if (status === 'cancelled')
     return [{ content: '', embeds: [{ ...embed, description: '**This raid has been cancelled.**' }] }]
   const lineup = signupLineup(payload.signups ?? [], payload.targets ?? [])
-  const card = { ...embed, description: describe(payload, lineup, status), fields: lineupFields(lineup) }
-  return [{ content: '', embeds: [card] }]
+  const pages = fieldPages(lineupFields(lineup))
+  return pages.map((fields, index) => ({
+    content: '',
+    embeds: [
+      {
+        ...embed,
+        description: index
+          ? `Signup lists continued · Page ${index + 1}/${pages.length}`
+          : describe(payload, lineup, status),
+        fields,
+        footer: {
+          text: pages.length > 1 ? `${FOOTERS[status]} · Page ${index + 1}/${pages.length}` : FOOTERS[status],
+        },
+      },
+    ],
+  }))
 }

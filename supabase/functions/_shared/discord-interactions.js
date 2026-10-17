@@ -1,5 +1,5 @@
 /**
- * Discord button presses on bot-posted rosters and sign-up posts. Pure request handling shared by
+ * Discord slash commands and button presses on bot-posted rosters and sign-up posts. Pure handling shared by
  * the raid-interactions Edge Function and executable Vitest tests; storage and network calls are
  * injected.
  *
@@ -7,6 +7,8 @@
  * The database then checks that message belongs to the guild's current delivery and that the user
  * may answer (respond_to_discord_raid for rosters, signup_from_discord for sign-ups).
  */
+
+import { parseRaidCommand, raidCommandReply } from './discord-commands.js'
 
 const SNOWFLAKE = /^\d{17,20}$/
 const UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
@@ -292,7 +294,7 @@ export async function editOriginalResponse(interaction, message, fetchFn = fetch
  * seconds) with a private "thinking" reply, or for a menu choice by updating that menu later;
  * `schedule` keeps the save, the follow-up and the post refresh running.
  * @param {Request} request
- * @param {{ publicKey: string, applicationId: string, now?: number,
+ * @param {{ publicKey: string, applicationId: string, appUrl?: string, now?: number,
  *   rpc: (name: string, args: object) => Promise<object>,
  *   followup?: (interaction: object, message: string | object) => Promise<void>,
  *   refresh?: (guildId: string) => Promise<unknown>,
@@ -322,6 +324,31 @@ export async function handleDiscordInteraction(request, config) {
   }
   if (interaction?.application_id !== applicationId) return reply({ error: 'Wrong application.' }, 401)
   if (interaction.type === PING) return reply({ type: PONG })
+  const command = parseRaidCommand(interaction)
+  if (command) {
+    schedule(
+      (async () => {
+        let message
+        try {
+          const data = command.name === 'help' ? null : await rpc('discord_raid_overview', command.args)
+          message = raidCommandReply(command, data, config.appUrl)
+        } catch (error) {
+          log(`command ${interaction.id} failed: ${error.message}`)
+          message = {
+            content: 'Raids could not be loaded. Try again in a moment.',
+            embeds: [],
+            components: [],
+          }
+        }
+        try {
+          await followup(interaction, message)
+        } catch (error) {
+          log(`command ${interaction.id} reply failed: ${error.message}`)
+        }
+      })(),
+    )
+    return reply({ type: DEFERRED_MESSAGE, data: { flags: EPHEMERAL } })
+  }
   if (interaction.type !== COMPONENT) return reply({ error: 'Unsupported interaction.' }, 400)
   const signup = parseSignup(interaction, applicationId)
   if (signup) return handleSignup(interaction, 'signup_from_discord', signup, { ...config, followup, log })

@@ -7,6 +7,8 @@
  * names it, and only someone with Manage Server there can add the bot.
  */
 
+import { registerRaidCommand } from './discord-commands.js'
+
 const API = 'https://discord.com/api/v10'
 const SNOWFLAKE = /^\d{17,20}$/
 const ADMINISTRATOR = 1n << 3n
@@ -237,6 +239,15 @@ export async function handleConnect(body, config) {
     const serverId = await linkedServer(guildId)
     if (!serverId) throw new ConnectError('Add WhenToRaid to your Discord server first.', 409)
     return { channels: await listChannels({ serverId, botToken, fetchFn }) }
+  }
+  if (action === 'commands') {
+    const serverId = await linkedServer(guildId)
+    if (!serverId) throw new ConnectError('Add WhenToRaid to your Discord server first.', 409)
+    try {
+      return await registerRaidCommand({ applicationId, serverId, botToken, fetchFn })
+    } catch (error) {
+      throw new ConnectError(error.message, 502)
+    }
   }
   throw new ConnectError('Unknown action.')
 }

@@ -89,3 +89,6 @@ export async function finishDiscordConnect(client, guildId, { storage = session(
 export async function listDiscordChannels(client, guildId) {
   return (await invoke(client, { action: 'channels', guildId })).channels ?? []
 }
+
+/** Enable or update guild-scoped slash commands in the verified connected server. */
+export const enableDiscordCommands = (client, guildId) => invoke(client, { action: 'commands', guildId })

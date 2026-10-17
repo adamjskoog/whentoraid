@@ -242,7 +242,14 @@
     if (result.error) return showToast(result.error)
     app.data = result.state
     showIssues = false
-    offerUndo('Roster published. Draft edits will stay separate.', previous)
+    // Say so when nothing goes to Discord, so a missing channel doesn't look like a failed publish.
+    const unposted = discordChannel.loaded && !hasDiscordChannel()
+    offerUndo(
+      unposted
+        ? 'Roster published. Not posted to Discord: set a channel in Guild settings to post there.'
+        : 'Roster published. Draft edits will stay separate.',
+      previous,
+    )
     if (!hasDiscordChannel()) return
     // A roster already in Discord follows what was just published; a new one is posted unless unticked.
     if (postedIds.length) void followPublication(postToDiscord)

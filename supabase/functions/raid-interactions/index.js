@@ -44,6 +44,7 @@ Deno.serve((request) => {
   return handleDiscordInteraction(request, {
     publicKey: PUBLIC_KEY,
     applicationId: APPLICATION_ID,
+    appUrl: APP_URL,
     rpc,
     refresh,
     // Keep saving after the three-second acknowledgement has been returned to Discord.
